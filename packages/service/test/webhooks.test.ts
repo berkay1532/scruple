@@ -71,4 +71,24 @@ describe("Dispatcher.dispatchDue", () => {
     const dispatcher = new Dispatcher({ store, fetchImpl: fetchImpl as unknown as typeof fetch, now: () => 0 });
     expect(await dispatcher.dispatchDue()).toEqual({ delivered: 1, failed: 1 });
   });
+
+  it("times out hanging endpoints and routes them to the retry path", async () => {
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+    );
+    const store = new Store(":memory:");
+    store.addEndpoint("https://hooks.example/a", "s");
+    store.insertEvent(ev("0xaa:1", 0));
+    const dispatcher = new Dispatcher({
+      store,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: () => 0,
+      timeoutMs: 20,
+    });
+    const res = await dispatcher.dispatchDue();
+    expect(res).toEqual({ delivered: 0, failed: 1 });
+    expect(store.duePending(RETRY_DELAYS_S[0] * 1000)).toHaveLength(1);
+  });
 });

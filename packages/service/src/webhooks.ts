@@ -16,11 +16,18 @@ export class Dispatcher {
   private readonly store: Store;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
+  private readonly timeoutMs: number;
 
-  constructor(opts: { store: Store; fetchImpl?: typeof fetch; now?: () => number }) {
+  constructor(opts: {
+    store: Store;
+    fetchImpl?: typeof fetch;
+    now?: () => number;
+    timeoutMs?: number;
+  }) {
     this.store = opts.store;
     this.fetchImpl = opts.fetchImpl ?? globalThis.fetch;
     this.now = opts.now ?? (() => Date.now());
+    this.timeoutMs = opts.timeoutMs ?? 10_000;
   }
 
   async dispatchDue(): Promise<{ delivered: number; failed: number }> {
@@ -39,6 +46,8 @@ export class Dispatcher {
             "scruple-signature": `sha256=${signBody(d.secret, d.body)}`,
           },
           body: d.body,
+          // A hang is treated exactly like a failure: the abort rejects the fetch, which the catch below routes to the retry path.
+          signal: AbortSignal.timeout(this.timeoutMs),
         });
         status = res.status;
         ok = res.status >= 200 && res.status < 300;
