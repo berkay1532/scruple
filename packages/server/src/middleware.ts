@@ -50,10 +50,17 @@ export function scruple(opts: ScrupleOptions): RequestHandler {
         res.status(402).json({ error: "Malformed payment", reason: err.message });
         return;
       }
-      throw err;
+      res.status(402).json({ error: "Malformed payment", reason: "unexpected decode error" });
+      return;
     }
 
-    const settled = await opts.facilitator.settle(payload, requirements);
+    let settled;
+    try {
+      settled = await opts.facilitator.settle(payload, requirements);
+    } catch (err) {
+      res.status(402).json({ error: "Payment settlement failed", reason: "settlement_unavailable" });
+      return;
+    }
     if (!settled.success) {
       res.status(402).json({ error: "Payment settlement failed", reason: settled.errorReason });
       return;
@@ -66,10 +73,14 @@ export function scruple(opts: ScrupleOptions): RequestHandler {
       success: true, transaction: settled.transaction ?? null,
       network: ARC_TESTNET_NETWORK, payer: settled.payer,
     })).toString("base64"));
-    opts.onPayment?.({
-      endpoint: req.path, payer: settled.payer, atomic: match.atomic,
-      price: match.price, transaction: settled.transaction, at: Date.now(),
-    });
+    try {
+      opts.onPayment?.({
+        endpoint: req.path, payer: settled.payer, atomic: match.atomic,
+        price: match.price, transaction: settled.transaction, at: Date.now(),
+      });
+    } catch (err) {
+      console.error("[scruple] onPayment callback threw:", err);
+    }
     next();
   };
 }

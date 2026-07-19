@@ -77,4 +77,24 @@ describe("scruple middleware", () => {
     expect(res.body.error).toBe("Malformed payment");
     expect(settle).not.toHaveBeenCalled();
   });
+
+  it("responds 402 when settle rejects instead of hanging", async () => {
+    const facilitator: Facilitator = {
+      settle: vi.fn(async () => { throw new Error("network down"); }),
+    };
+    const res = await request(makeApp(facilitator))
+      .get("/api/quote").set("payment-signature", encodePayload());
+    expect(res.status).toBe(402);
+    expect(res.body).toEqual({ error: "Payment settlement failed", reason: "settlement_unavailable" });
+  });
+
+  it("still serves the response when onPayment callback throws", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = makeApp(okFacilitator, () => { throw new Error("boom"); });
+    const res = await request(app).get("/api/quote").set("payment-signature", encodePayload());
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ quote: 42, payer: "0xPAYER" });
+    expect(res.headers["payment-response"]).toBeDefined();
+    errorSpy.mockRestore();
+  });
 });
