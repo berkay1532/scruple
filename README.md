@@ -33,11 +33,12 @@ directly to the merchant + treasury via `transferFrom`:
 ## Quickstart
 
 ```bash
-cd contracts
+git clone --recurse-submodules https://github.com/berkay1532/scruple.git
+cd scruple/contracts
 forge test
 ```
 
-25/25 tests passing (`CardIssuer`, `SubscriptionManager`, `MockUSDC`).
+28/28 tests passing (`CardIssuer`, `SubscriptionManager`, `MockUSDC`).
 
 ## Deploy (Arc testnet, chain 5042002)
 
