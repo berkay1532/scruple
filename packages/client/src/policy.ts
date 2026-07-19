@@ -51,6 +51,18 @@ export class PolicyTracker {
     this.spent += atomic;
   }
 
+  /**
+   * Refunds a previously recorded (reserved) spend, e.g. when a payment
+   * attempt fails after the spend was reserved synchronously. Floors at
+   * zero: if a period rollover happened between the reservation and the
+   * release, `spent` reflects the *new* period and cannot be driven
+   * negative by refunding an amount that belonged to a prior period.
+   */
+  release(atomic: bigint): void {
+    this.roll();
+    this.spent = this.spent >= atomic ? this.spent - atomic : 0n;
+  }
+
   spentInPeriod(): bigint {
     this.roll();
     return this.spent;

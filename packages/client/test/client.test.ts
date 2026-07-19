@@ -67,4 +67,38 @@ describe("ScrupleClient.fetch", () => {
     const c = new ScrupleClient({ gateway, fetchImpl: bad });
     await expect(c.fetch(URL_)).rejects.toThrow(MalformedChallengeError);
   });
+
+  it("throws MalformedChallengeError for a non-positive challenge amount", async () => {
+    const gateway = { pay: vi.fn() };
+    const c = new ScrupleClient({ gateway, fetchImpl: fetch402(0n) });
+    await expect(c.fetch(URL_)).rejects.toThrow(MalformedChallengeError);
+    expect(gateway.pay).not.toHaveBeenCalled();
+  });
+
+  it("does not keep reserved spend when pay rejects", async () => {
+    const gateway = { pay: vi.fn(async () => { throw new Error("network down"); }) };
+    const policy = new PolicyTracker({ periodBudget: 10_000n, periodMs: 1000 });
+    const c = new ScrupleClient({ gateway, policy, fetchImpl: fetch402(1000n) });
+    await expect(c.fetch(URL_)).rejects.toThrow("network down");
+    expect(policy.spentInPeriod()).toBe(0n);
+  });
+
+  it("prevents concurrent overspend", async () => {
+    const gateway = {
+      pay: vi.fn(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        return { status: 200, data: { quote: 42 } };
+      }),
+    };
+    const policy = new PolicyTracker({ periodBudget: 1500n, periodMs: 1000 });
+    const c = new ScrupleClient({ gateway, policy, fetchImpl: fetch402(1000n) });
+    const [a, b] = await Promise.allSettled([c.fetch(URL_), c.fetch(URL_)]);
+    const results = [a, b];
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(PolicyExceededError);
+    expect(policy.spentInPeriod()).toBe(1000n);
+  });
 });

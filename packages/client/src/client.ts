@@ -52,14 +52,25 @@ export class ScrupleClient {
     } catch {
       throw new MalformedChallengeError("undecodable envelope");
     }
+    if (atomic <= 0n) throw new MalformedChallengeError("non-positive amount");
 
     if (this.policy) {
       const decision = this.policy.check(atomic, new URL(url).origin);
       if (!decision.ok) throw new PolicyExceededError(decision.reason, atomic);
+      // Reserve the spend synchronously (before the await below) so that
+      // concurrent fetch() calls cannot both pass check() against the same
+      // pre-spend state (TOCTOU). JS single-threading makes this check+record
+      // pair atomic with respect to other fetch() calls.
+      this.policy.record(atomic);
     }
 
-    const result = await this.gateway.pay(url, init);
-    this.policy?.record(atomic);
+    let result: { status: number; data: unknown; formattedAmount?: string };
+    try {
+      result = await this.gateway.pay(url, init);
+    } catch (err) {
+      this.policy?.release(atomic);
+      throw err;
+    }
     return { status: result.status, data: result.data, paid: { atomic } };
   }
 }
