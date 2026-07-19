@@ -65,4 +65,57 @@ contract CardIssuerTest is Test {
         vm.expectRevert(CardIssuer.CardIsCancelled.selector);
         issuer.unfreeze(id);
     }
+
+    function _authorizeSelfAsCharger() internal {
+        issuer.setChargerAuthorization(address(this), true); // test contract deployed issuer → is admin
+    }
+
+    function test_authorizeSpend_debitsBudget_andEmits() public {
+        uint256 id = _mintDefaultCard();
+        _authorizeSelfAsCharger();
+        issuer.authorizeSpend(id, merchant, 1_500_000);
+        assertEq(issuer.getCard(id).spentInPeriod, 1_500_000);
+        vm.expectRevert(CardIssuer.BudgetExceeded.selector);
+        issuer.authorizeSpend(id, merchant, 600_000); // 1.5 + 0.6 > $2
+    }
+
+    function test_authorizeSpend_periodRollsOver() public {
+        uint256 id = _mintDefaultCard();
+        _authorizeSelfAsCharger();
+        issuer.authorizeSpend(id, merchant, 2_000_000);      // exhaust day 1
+        vm.warp(block.timestamp + 1 days + 1);
+        issuer.authorizeSpend(id, merchant, 2_000_000);      // fresh budget day 2
+        assertEq(issuer.getCard(id).spentInPeriod, 2_000_000);
+    }
+
+    function test_authorizeSpend_enforcesAllowlistExpiryStateCaller() public {
+        uint256 id = _mintDefaultCard();
+        _authorizeSelfAsCharger();
+
+        vm.expectRevert(CardIssuer.MerchantNotAllowed.selector);
+        issuer.authorizeSpend(id, makeAddr("otherMerchant"), 1);
+
+        vm.prank(owner);
+        issuer.freeze(id);
+        vm.expectRevert(CardIssuer.CardNotActive.selector);
+        issuer.authorizeSpend(id, merchant, 1);
+        vm.prank(owner);
+        issuer.unfreeze(id);
+
+        vm.warp(block.timestamp + 31 days); // past expiry
+        vm.expectRevert(CardIssuer.CardExpired.selector);
+        issuer.authorizeSpend(id, merchant, 1);
+
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(CardIssuer.NotAuthorizedCharger.selector);
+        issuer.authorizeSpend(id, merchant, 1);
+    }
+
+    function test_previewSpend_matchesWithoutMutation() public {
+        uint256 id = _mintDefaultCard();
+        assertTrue(issuer.previewSpend(id, merchant, 2_000_000));
+        assertFalse(issuer.previewSpend(id, merchant, 2_000_001));
+        assertFalse(issuer.previewSpend(id, makeAddr("otherMerchant"), 1));
+        assertEq(issuer.getCard(id).spentInPeriod, 0); // no mutation
+    }
 }
