@@ -3,6 +3,7 @@ import express from "express";
 import request from "supertest";
 import { scruple, type PaidRequest } from "../src/middleware";
 import { buildPaymentRequirements, type Facilitator } from "../src/x402";
+import { InvalidPriceError } from "../src/ratecard";
 
 const SELLER = "0x00000000000000000000000000000000000SE11e";
 
@@ -79,6 +80,7 @@ describe("scruple middleware", () => {
   });
 
   it("responds 402 when settle rejects instead of hanging", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const facilitator: Facilitator = {
       settle: vi.fn(async () => { throw new Error("network down"); }),
     };
@@ -86,6 +88,8 @@ describe("scruple middleware", () => {
       .get("/api/quote").set("payment-signature", encodePayload());
     expect(res.status).toBe(402);
     expect(res.body).toEqual({ error: "Payment settlement failed", reason: "settlement_unavailable" });
+    expect(errorSpy).toHaveBeenCalledWith("[scruple] settle failed:", expect.any(Error));
+    errorSpy.mockRestore();
   });
 
   it("still serves the response when onPayment callback throws", async () => {
@@ -96,5 +100,34 @@ describe("scruple middleware", () => {
     expect(res.body).toEqual({ quote: 42, payer: "0xPAYER" });
     expect(res.headers["payment-response"]).toBeDefined();
     errorSpy.mockRestore();
+  });
+
+  it("still serves the response when an async onPayment callback rejects", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = makeApp(okFacilitator, async () => { throw new Error("async boom"); });
+    const res = await request(app).get("/api/quote").set("payment-signature", encodePayload());
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ quote: 42, payer: "0xPAYER" });
+    errorSpy.mockRestore();
+  });
+
+  it("does not serve paid content for a trailing-slash variant of a priced route", async () => {
+    const res = await request(makeApp(okFacilitator)).get("/api/quote/");
+    expect(res.status).toBe(402);
+    expect(res.headers["payment-required"]).toBeDefined();
+  });
+
+  it("does not serve paid content for a differently-cased variant of a priced route", async () => {
+    const res = await request(makeApp(okFacilitator)).get("/API/quote");
+    expect(res.status).toBe(402);
+    expect(res.headers["payment-required"]).toBeDefined();
+  });
+
+  it("throws InvalidPriceError at construction time for a malformed rate-card price", () => {
+    expect(() => scruple({
+      rateCard: { "GET /x": "$.5" },
+      sellerAddress: SELLER,
+      facilitator: okFacilitator,
+    })).toThrow(InvalidPriceError);
   });
 });

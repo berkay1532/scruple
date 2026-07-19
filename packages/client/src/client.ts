@@ -3,6 +3,13 @@ import type { PolicyTracker } from "./policy";
 export interface GatewayLike {
   pay(url: string, opts?: { method?: string; body?: unknown }): Promise<{
     status: number; data: unknown; formattedAmount?: string;
+    /**
+     * The amount actually settled on-chain, if the gateway reports it (the
+     * real Circle `PayResult` does). May differ from the pre-pay challenge
+     * amount reserved against the spending policy — e.g. due to rounding or
+     * fee adjustments applied by the facilitator during settlement.
+     */
+    amount?: bigint;
   }>;
 }
 
@@ -64,12 +71,24 @@ export class ScrupleClient {
       this.policy.record(atomic);
     }
 
-    let result: { status: number; data: unknown; formattedAmount?: string };
+    let result: { status: number; data: unknown; formattedAmount?: string; amount?: bigint };
     try {
       result = await this.gateway.pay(url, init);
     } catch (err) {
       this.policy?.release(atomic);
       throw err;
+    }
+
+    // The payment has already settled by this point — reconciliation below
+    // is an accounting truth-up against the policy's recorded spend, not an
+    // enforcement decision. Enforcement already happened pre-pay via
+    // policy.check() against the challenge amount above.
+    if (result.amount !== undefined && result.amount !== atomic) {
+      if (this.policy) {
+        this.policy.release(atomic);
+        this.policy.record(result.amount);
+      }
+      return { status: result.status, data: result.data, paid: { atomic: result.amount } };
     }
     return { status: result.status, data: result.data, paid: { atomic } };
   }

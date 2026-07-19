@@ -6,8 +6,7 @@
   "main": "src/index.ts",
   "scripts": { "test": "vitest run" },
   "dependencies": {
-    "@circle-fin/x402-batching": "^2.0.4",
-    "viem": "^2.47.1"
+    "@circle-fin/x402-batching": "^2.0.4"
   },
   "devDependencies": {
     "@types/node": "^25.4.0",

@@ -1,5 +1,5 @@
 import type { Request, RequestHandler } from "express";
-import { matchRoute, type RateCard } from "./ratecard";
+import { buildRateCardLookup, matchRouteInLookup, type RateCard } from "./ratecard";
 import { ARC_TESTNET_NETWORK } from "./constants";
 import {
   buildPaymentRequirements, buildPaymentRequiredHeader,
@@ -23,12 +23,18 @@ export interface ScrupleOptions {
   rateCard: RateCard;
   sellerAddress: string;
   facilitator: Facilitator;
-  onPayment?: (e: PaymentEvent) => void;
+  onPayment?: (e: PaymentEvent) => void | Promise<void>;
 }
 
 export function scruple(opts: ScrupleOptions): RequestHandler {
+  // Eagerly parse and validate every rate-card entry at construction time
+  // (server startup), not per-request. A malformed price (e.g. "$.5") would
+  // otherwise throw inside the async request handler on the first paying
+  // request, producing an unhandled rejection.
+  const rateCardLookup = buildRateCardLookup(opts.rateCard);
+
   return async (req, res, next) => {
-    const match = matchRoute(opts.rateCard, req.method, req.path);
+    const match = matchRouteInLookup(rateCardLookup, req.method, req.path);
     if (!match) return next();
 
     const requirements = buildPaymentRequirements({ atomic: match.atomic, payTo: opts.sellerAddress });
@@ -58,6 +64,7 @@ export function scruple(opts: ScrupleOptions): RequestHandler {
     try {
       settled = await opts.facilitator.settle(payload, requirements);
     } catch (err) {
+      console.error("[scruple] settle failed:", err);
       res.status(402).json({ error: "Payment settlement failed", reason: "settlement_unavailable" });
       return;
     }
@@ -73,14 +80,16 @@ export function scruple(opts: ScrupleOptions): RequestHandler {
       success: true, transaction: settled.transaction ?? null,
       network: ARC_TESTNET_NETWORK, payer: settled.payer,
     })).toString("base64"));
-    try {
-      opts.onPayment?.({
-        endpoint: req.path, payer: settled.payer, atomic: match.atomic,
-        price: match.price, transaction: settled.transaction, at: Date.now(),
-      });
-    } catch (err) {
+    // Fire-and-forget: onPayment may be sync or async, and either a thrown
+    // error or a rejected promise must not delay next() or crash the
+    // process. Promise.resolve().then(...) contains both cases uniformly.
+    const event: PaymentEvent = {
+      endpoint: req.path, payer: settled.payer, atomic: match.atomic,
+      price: match.price, transaction: settled.transaction, at: Date.now(),
+    };
+    Promise.resolve().then(() => opts.onPayment?.(event)).catch((err) => {
       console.error("[scruple] onPayment callback threw:", err);
-    }
+    });
     next();
   };
 }

@@ -83,6 +83,15 @@ describe("ScrupleClient.fetch", () => {
     expect(policy.spentInPeriod()).toBe(0n);
   });
 
+  it("reconciles the recorded spend when the gateway pays a different amount than challenged", async () => {
+    const gateway = { pay: vi.fn(async () => ({ status: 200, data: "ok", amount: 1200n })) };
+    const policy = new PolicyTracker({ periodBudget: 10_000n, periodMs: 1000 });
+    const c = new ScrupleClient({ gateway, policy, fetchImpl: fetch402(1000n) });
+    const res = await c.fetch(URL_);
+    expect(res.paid).toEqual({ atomic: 1200n });
+    expect(policy.spentInPeriod()).toBe(1200n);
+  });
+
   it("prevents concurrent overspend", async () => {
     const gateway = {
       pay: vi.fn(async () => {
