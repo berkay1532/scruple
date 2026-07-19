@@ -93,4 +93,88 @@ contract SubscriptionManagerTest is Test {
         vm.expectRevert(SubscriptionManager.NotCardOwnerOfCard.selector);
         subs.subscribe(planId, cardId);
     }
+
+    function _fundAndApprove(uint256 amount) internal {
+        usdc.mint(customer, amount);
+        vm.prank(customer);
+        usdc.approve(address(subs), type(uint256).max);
+    }
+
+    function test_charge_pullsFeeSplit_andReschedules() public {
+        uint256 planId = _plan(29_000_000);
+        uint256 cardId = _card();
+        _fundAndApprove(100_000_000);
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+
+        uint48 scheduled = subs.getSubscription(subId).nextChargeAt;
+        subs.charge(subId); // callable by anyone (test contract is a stranger)
+
+        assertEq(usdc.balanceOf(treasury), 290_000);            // 1% of $29
+        assertEq(usdc.balanceOf(merchant), 28_710_000);         // $29 - fee
+        assertEq(subs.getSubscription(subId).nextChargeAt, scheduled + 30 days);
+    }
+
+    function test_charge_revertsBeforeDue_andWhenCardBlocks() public {
+        vm.prank(merchant);
+        uint256 planId = subs.createPlan(address(usdc), 29_000_000, 30 days, 14 days);
+        uint256 cardId = _card();
+        _fundAndApprove(100_000_000);
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+
+        vm.expectRevert(SubscriptionManager.ChargeNotDue.selector);
+        subs.charge(subId); // trial not over
+
+        vm.warp(block.timestamp + 14 days);
+        vm.prank(customer);
+        issuer.freeze(cardId);
+        vm.expectRevert(CardIssuer.CardNotActive.selector);
+        subs.charge(subId); // frozen card declines — the demo's red-card moment
+    }
+
+    function test_charge_pastGrace_expiresWithoutTransfer() public {
+        uint256 planId = _plan(29_000_000);
+        uint256 cardId = _card();
+        _fundAndApprove(100_000_000);
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+
+        vm.warp(block.timestamp + 3 days + 1); // past GRACE
+        subs.charge(subId);
+        assertEq(uint256(subs.getSubscription(subId).state), uint256(SubscriptionManager.SubState.Expired));
+        assertEq(usdc.balanceOf(merchant), 0);
+    }
+
+    function test_charge_migratesToLatestVersionAtRenewal() public {
+        uint256 planId = _plan(29_000_000);
+        uint256 cardId = _card();
+        _fundAndApprove(100_000_000);
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+        subs.charge(subId); // v1 charge
+
+        vm.prank(merchant);
+        subs.pushPlanVersion(planId, 35_000_000, 30 days, 0);
+        vm.warp(block.timestamp + 30 days);
+        subs.charge(subId); // renewal at v2 price
+        assertEq(subs.getSubscription(subId).planVersion, 2);
+        assertEq(usdc.balanceOf(merchant), 28_710_000 + 34_650_000); // $29 & $35, each -1%
+    }
+
+    function test_cancel_customerOnly_stopsCharges() public {
+        uint256 planId = _plan(29_000_000);
+        uint256 cardId = _card();
+        _fundAndApprove(100_000_000);
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+
+        vm.expectRevert(SubscriptionManager.NotCustomer.selector);
+        subs.cancel(subId);
+
+        vm.prank(customer);
+        subs.cancel(subId);
+        vm.expectRevert(SubscriptionManager.SubNotActive.selector);
+        subs.charge(subId);
+    }
 }
