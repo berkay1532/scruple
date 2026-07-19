@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Store } from "../src/db";
 import { AtRiskMonitor, type SubReader, type UpcomingCharge } from "../src/atrisk";
 
@@ -69,5 +69,34 @@ describe("AtRiskMonitor.runOnce", () => {
     expect(await monitor.runOnce()).toBe(0);
     const later = new AtRiskMonitor({ store, reader: r, now: () => NOW_MS + 2_592_000_000 });
     expect(await later.runOnce()).toBe(1); // same (sub) new (period) -> emits again
+  });
+
+  it("continues past a sub whose reader rejects", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const store = new Store(":memory:");
+      store.trackSub("1");
+      store.trackSub("2");
+      const r: SubReader = {
+        getUpcomingCharge: async (subId: string) => {
+          if (subId === "1") throw new Error("rpc boom");
+          return {
+            active: true,
+            nextChargeAt: NOW_S + 86_400,
+            amount: 29_000_000n,
+            merchant: "0xmerchant",
+            customer: "0xcustomer",
+            cardId: "5",
+          };
+        },
+        balanceOf: async () => 0n,
+        previewSpend: async () => true,
+      };
+      const monitor = new AtRiskMonitor({ store, reader: r, now: () => NOW_MS });
+      expect(await monitor.runOnce()).toBe(1);
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });

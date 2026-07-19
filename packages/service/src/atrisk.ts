@@ -33,27 +33,35 @@ export class AtRiskMonitor {
     const nowS = Math.floor(this.now() / 1000);
     let emitted = 0;
     for (const subId of this.store.listActiveSubs()) {
-      const s = await this.reader.getUpcomingCharge(subId);
-      if (!s.active) {
-        this.store.deactivateSub(subId);
-        continue;
+      try {
+        const s = await this.reader.getUpcomingCharge(subId);
+        if (!s.active) {
+          this.store.deactivateSub(subId);
+          continue;
+        }
+        if (s.nextChargeAt - nowS > this.lookaheadS) continue;
+
+        let reason: string | null = null;
+        if ((await this.reader.balanceOf(s.customer)) < s.amount) reason = "insufficient_balance";
+        else if (!(await this.reader.previewSpend(s.cardId, s.merchant, s.amount))) reason = "card_policy_blocks";
+        if (reason === null) continue;
+
+        // insertEvent's id (`atrisk:${subId}:${nextChargeAt}`) is the atomic per-period
+        // dedup gate via INSERT OR IGNORE; markAtRiskEmitted is bookkeeping derived from
+        // a successful insert, so a crash between the two can never lose or wedge an event.
+        const inserted = this.store.insertEvent({
+          id: `atrisk:${subId}:${s.nextChargeAt}`,
+          type: "subscription.at_risk",
+          blockNumber: null,
+          payload: { subId, reason, nextChargeAt: String(s.nextChargeAt), amount: String(s.amount) },
+          at: this.now(),
+        });
+        if (!inserted) continue;
+        this.store.markAtRiskEmitted(subId, s.nextChargeAt);
+        emitted += 1;
+      } catch (err) {
+        console.error("[scruple-service] at-risk check failed for sub", subId, err);
       }
-      if (s.nextChargeAt - nowS > this.lookaheadS) continue;
-
-      let reason: string | null = null;
-      if ((await this.reader.balanceOf(s.customer)) < s.amount) reason = "insufficient_balance";
-      else if (!(await this.reader.previewSpend(s.cardId, s.merchant, s.amount))) reason = "card_policy_blocks";
-      if (reason === null) continue;
-
-      if (!this.store.markAtRiskEmitted(subId, s.nextChargeAt)) continue;
-      this.store.insertEvent({
-        id: `atrisk:${subId}:${s.nextChargeAt}`,
-        type: "subscription.at_risk",
-        blockNumber: null,
-        payload: { subId, reason, nextChargeAt: String(s.nextChargeAt), amount: String(s.amount) },
-        at: this.now(),
-      });
-      emitted += 1;
     }
     return emitted;
   }
