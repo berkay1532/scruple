@@ -52,7 +52,7 @@ See `examples/` for a runnable merchant + agent pair on Arc testnet.
     npm install
     npm test        # unit suites for both SDKs (network boundaries mocked)
 
-69/69 tests passing (server 21, client 17, service 31; network boundaries mocked).
+70/70 tests passing (server 21, client 17, service 32; network boundaries mocked).
 
 ## Services (Phase 3)
 
