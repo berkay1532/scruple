@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { encodeEventTopics, encodeAbiParameters, toEventSelector } from "viem";
 import { decodeLog, CARD_ISSUER_ABI, SUBSCRIPTION_MANAGER_ABI, type RawLog } from "../src/events";
 import { encodeEventLog } from "./helpers";
 

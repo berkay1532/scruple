@@ -54,6 +54,25 @@ See `examples/` for a runnable merchant + agent pair on Arc testnet.
 
 33/33 tests passing (server 17, client 16; network boundaries mocked).
 
+## Services (Phase 3)
+
+`@scruple/service` — the off-chain backbone:
+
+- **Indexer** — chunked `getLogs` polling (Arc drops `eth_newFilter`), resumable cursor, deterministic event ids (`txHash:logIndex`).
+- **Webhooks** — HMAC-SHA256-signed deliveries (`scruple-signature`), idempotency id on every event, retries at 1m/5m/30m/2h/12h then dead-lettered.
+- **At-risk monitor** — emits `subscription.at_risk` *before* a renewal that would fail (insufficient balance or card policy), killing silent churn.
+- **Keeper** — calls the permissionless `charge()` for due subscriptions.
+
+    # after deploying contracts (see Deploy):
+    CARD_ISSUER_ADDRESS=0x… SUBSCRIPTION_MANAGER_ADDRESS=0x… \
+    WEBHOOK_URL=https://your.app/hooks WEBHOOK_SECRET=whsec_… \
+    KEEPER_PRIVATE_KEY=0x… npx tsx packages/service/bin/service.ts
+
+Event taxonomy: `card.created|frozen|unfrozen|cancelled`, `plan.created|version_pushed`,
+`subscription.created|expired|cancelled|at_risk`, `payment.succeeded`.
+(`payment.attempt_failed`/`payment.overdue` detection lands with the dashboard phase.)
+Store is SQLite for the MVP (schema is Postgres-portable).
+
 ## Deploy (Arc testnet, chain 5042002)
 
 ```bash
