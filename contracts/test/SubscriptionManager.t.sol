@@ -47,10 +47,10 @@ contract SubscriptionManagerTest is Test {
         assertEq(subs.getPlanVersion(planId, 2).amount, 35_000_000);
     }
 
-    function test_createPlan_revertsOnZeroPeriod() public {
+    function test_createPlan_revertsOnPeriodTooShort() public {
         vm.prank(merchant);
-        vm.expectRevert(SubscriptionManager.InvalidPeriod.selector);
-        subs.createPlan(address(usdc), 1, 0, 0);
+        vm.expectRevert(SubscriptionManager.PeriodTooShort.selector);
+        subs.createPlan(address(usdc), 1, 2 days, 0);
     }
 
     function _plan(uint256 amount) internal returns (uint256 planId) {
@@ -160,6 +160,47 @@ contract SubscriptionManagerTest is Test {
         subs.charge(subId); // renewal at v2 price
         assertEq(subs.getSubscription(subId).planVersion, 2);
         assertEq(usdc.balanceOf(merchant), 28_710_000 + 34_650_000); // $29 & $35, each -1%
+    }
+
+    function test_charge_lateWithinGrace_doesNotDrift() public {
+        uint256 planId = _plan(29_000_000);
+        uint256 cardId = _card();
+        _fundAndApprove(100_000_000);
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+
+        uint48 scheduled = subs.getSubscription(subId).nextChargeAt;
+        vm.warp(block.timestamp + 2 days); // late, but within GRACE
+        subs.charge(subId);
+
+        assertEq(subs.getSubscription(subId).nextChargeAt, scheduled + 30 days);
+    }
+
+    function test_charge_secondCallSameWindow_reverts() public {
+        uint256 planId = _plan(29_000_000);
+        uint256 cardId = _card();
+        _fundAndApprove(100_000_000);
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+
+        subs.charge(subId);
+
+        vm.expectRevert(SubscriptionManager.ChargeNotDue.selector);
+        subs.charge(subId);
+    }
+
+    function test_charge_feeRounding_floorsToTreasury() public {
+        vm.prank(merchant);
+        uint256 planId = subs.createPlan(address(usdc), 10_000_001, 30 days, 0);
+        uint256 cardId = _card();
+        _fundAndApprove(100_000_000);
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+
+        subs.charge(subId);
+
+        assertEq(usdc.balanceOf(treasury), 100_000);
+        assertEq(usdc.balanceOf(merchant), 9_900_001);
     }
 
     function test_cancel_customerOnly_stopsCharges() public {

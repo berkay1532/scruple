@@ -45,6 +45,7 @@ contract SubscriptionManager {
 
     error NotMerchant();
     error InvalidPeriod();
+    error PeriodTooShort();
     error PlanInactive();
     error NotCardOwnerOfCard();
     error SubNotActive();
@@ -56,10 +57,15 @@ contract SubscriptionManager {
         treasury = treasury_;
     }
 
+    /// @notice `period` must exceed GRACE. The double-charge guard in `charge()` relies on
+    /// `nextChargeAt += period` moving strictly past `block.timestamp` after a late-but-in-grace
+    /// charge; for `period <= GRACE` that guard can leave `nextChargeAt <= block.timestamp`,
+    /// letting a permissionless caller invoke `charge()` repeatedly in one block. Sub-GRACE
+    /// billing intervals belong to a metered module, not subscriptions.
     function createPlan(address token, uint256 amount, uint48 period, uint48 trialPeriod)
         external returns (uint256 planId)
     {
-        if (period == 0) revert InvalidPeriod();
+        if (period <= GRACE) revert PeriodTooShort();
         planId = nextPlanId++;
         _plans[planId] = Plan({merchant: msg.sender, token: token, latestVersion: 1, active: true});
         _versions[planId][1] = PlanVersion({amount: amount, period: period, trialPeriod: trialPeriod});
@@ -69,7 +75,7 @@ contract SubscriptionManager {
     function pushPlanVersion(uint256 planId, uint256 amount, uint48 period, uint48 trialPeriod) external {
         Plan storage p = _plans[planId];
         if (p.merchant != msg.sender) revert NotMerchant();
-        if (period == 0) revert InvalidPeriod();
+        if (period <= GRACE) revert PeriodTooShort();
         p.latestVersion += 1;
         _versions[planId][p.latestVersion] = PlanVersion({amount: amount, period: period, trialPeriod: trialPeriod});
         emit PlanVersionPushed(planId, p.latestVersion);
@@ -118,15 +124,20 @@ contract SubscriptionManager {
         s.planVersion = p.latestVersion;
         PlanVersion storage v = _versions[s.planId][s.planVersion];
 
-        cardIssuer.authorizeSpend(s.cardId, p.merchant, v.amount);
+        // CEI: finalize all state (reschedule + version migration already done above) before
+        // any external calls, so a reentrant charge() sees a subscription that is not due yet.
+        uint16 version = s.planVersion;
+        uint256 amount = v.amount;
+        uint256 fee = (amount * FEE_BPS) / 10_000;
+        s.nextChargeAt = uint48(uint256(s.nextChargeAt) + v.period);
 
-        uint256 fee = (v.amount * FEE_BPS) / 10_000;
+        cardIssuer.authorizeSpend(s.cardId, p.merchant, amount);
+
         IERC20 token = IERC20(p.token);
         require(token.transferFrom(s.customer, treasury, fee), "FEE_PULL");
-        require(token.transferFrom(s.customer, p.merchant, v.amount - fee), "PAY_PULL");
+        require(token.transferFrom(s.customer, p.merchant, amount - fee), "PAY_PULL");
 
-        s.nextChargeAt = uint48(uint256(s.nextChargeAt) + v.period);
-        emit PaymentSucceeded(subId, s.planVersion, v.amount, fee);
+        emit PaymentSucceeded(subId, version, amount, fee);
     }
 
     function cancel(uint256 subId) external {
