@@ -51,15 +51,20 @@ CREATE TABLE IF NOT EXISTS at_risk_emitted (
 );
 `;
 
+export interface InsertEventSideEffects {
+  trackSub?: string;
+  deactivateSub?: string;
+}
+
 export class Store {
   private db: Database.Database;
-  private readonly insertEventTx: (e: DomainEvent) => boolean;
+  private readonly insertEventTx: (e: DomainEvent, sideEffects?: InsertEventSideEffects) => boolean;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.exec(SCHEMA);
-    this.insertEventTx = this.db.transaction((e: DomainEvent): boolean => {
+    this.insertEventTx = this.db.transaction((e: DomainEvent, sideEffects?: InsertEventSideEffects): boolean => {
       const res = this.db
         .prepare("INSERT OR IGNORE INTO events (id, type, block_number, payload, at) VALUES (?, ?, ?, ?, ?)")
         .run(e.id, e.type, e.blockNumber === null ? null : e.blockNumber.toString(), JSON.stringify(e.payload), e.at);
@@ -68,12 +73,20 @@ export class Store {
         "INSERT OR IGNORE INTO deliveries (event_id, endpoint_id, attempts, next_attempt_at) VALUES (?, ?, 0, ?)",
       );
       for (const ep of this.listEndpoints()) enqueue.run(e.id, ep.id, e.at);
+      if (sideEffects?.trackSub !== undefined) {
+        this.db
+          .prepare("INSERT INTO subs (sub_id, active) VALUES (?, 1) ON CONFLICT(sub_id) DO UPDATE SET active = 1")
+          .run(sideEffects.trackSub);
+      }
+      if (sideEffects?.deactivateSub !== undefined) {
+        this.db.prepare("UPDATE subs SET active = 0 WHERE sub_id = ?").run(sideEffects.deactivateSub);
+      }
       return true;
     });
   }
 
-  insertEvent(e: DomainEvent): boolean {
-    return this.insertEventTx(e);
+  insertEvent(e: DomainEvent, sideEffects?: InsertEventSideEffects): boolean {
+    return this.insertEventTx(e, sideEffects);
   }
 
   getCursor(key: string): bigint | null {

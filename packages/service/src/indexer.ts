@@ -55,13 +55,15 @@ export class Indexer {
       for (const log of logs) {
         const event = decodeLog(log, this.addresses, this.now());
         if (!event) continue;
-        const inserted = this.store.insertEvent(event);
+        const sideEffects =
+          event.type === "subscription.created"
+            ? { trackSub: event.payload.subId }
+            : event.type === "subscription.expired" || event.type === "subscription.cancelled"
+              ? { deactivateSub: event.payload.subId }
+              : undefined;
+        const inserted = this.store.insertEvent(event, sideEffects);
         if (!inserted) continue;
         processed += 1;
-        if (event.type === "subscription.created") this.store.trackSub(event.payload.subId);
-        if (event.type === "subscription.expired" || event.type === "subscription.cancelled") {
-          this.store.deactivateSub(event.payload.subId);
-        }
       }
       this.store.setCursor(CURSOR_KEY, to); // per-chunk: crash-safe resume
       from = to + 1n;

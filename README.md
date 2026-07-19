@@ -52,7 +52,7 @@ See `examples/` for a runnable merchant + agent pair on Arc testnet.
     npm install
     npm test        # unit suites for both SDKs (network boundaries mocked)
 
-33/33 tests passing (server 17, client 16; network boundaries mocked).
+69/69 tests passing (server 21, client 17, service 31; network boundaries mocked).
 
 ## Services (Phase 3)
 
@@ -70,7 +70,7 @@ See `examples/` for a runnable merchant + agent pair on Arc testnet.
 
 Event taxonomy: `card.created|frozen|unfrozen|cancelled`, `plan.created|version_pushed`,
 `subscription.created|expired|cancelled|at_risk`, `payment.succeeded`.
-(`payment.attempt_failed`/`payment.overdue` detection lands with the dashboard phase.)
+(`payment.attempt_failed`/`payment.overdue` detection and `settlement.batched` ingest land with the dashboard phase.)
 Store is SQLite for the MVP (schema is Postgres-portable).
 
 ## Deploy (Arc testnet, chain 5042002)

@@ -61,6 +61,19 @@ describe("Store", () => {
     expect(store.listActiveSubs()).toEqual(["8"]);
   });
 
+  it("applies sub side effects atomically with insert", () => {
+    expect(store.insertEvent(ev("0xaa:1"), { trackSub: "9" })).toBe(true);
+    expect(store.listActiveSubs()).toEqual(["9"]);
+
+    // duplicate insert: no fresh insert, so side effect must not apply
+    expect(store.insertEvent(ev("0xaa:1"), { deactivateSub: "9" })).toBe(false);
+    expect(store.listActiveSubs()).toEqual(["9"]);
+
+    // fresh event: side effect applies
+    expect(store.insertEvent(ev("0xbb:2"), { deactivateSub: "9" })).toBe(true);
+    expect(store.listActiveSubs()).toEqual([]);
+  });
+
   it("emits at-risk once per (sub, period)", () => {
     expect(store.markAtRiskEmitted("7", 555)).toBe(true);
     expect(store.markAtRiskEmitted("7", 555)).toBe(false);

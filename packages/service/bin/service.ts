@@ -13,7 +13,8 @@ const CARD_ISSUER = required("CARD_ISSUER_ADDRESS");
 const SUBSCRIPTION_MANAGER = required("SUBSCRIPTION_MANAGER_ADDRESS");
 const USDC = "0x3600000000000000000000000000000000000000";
 const DB_PATH = process.env.DB_PATH ?? "scruple-service.db";
-const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 5000);
+const pollRaw = Number(process.env.POLL_INTERVAL_MS ?? 5000);
+const POLL_INTERVAL_MS = Number.isFinite(pollRaw) && pollRaw > 0 ? pollRaw : 5000;
 
 function required(name: string): `0x${string}` {
   const v = process.env[name];
@@ -116,5 +117,8 @@ async function tick() {
 }
 
 console.log(`[scruple-service] starting — rpc=${RPC_URL} db=${DB_PATH} keeper=${keeper ? "on" : "off"}`);
-await tick();
-setInterval(tick, POLL_INTERVAL_MS);
+const loop = async () => {
+  await tick();
+  setTimeout(loop, POLL_INTERVAL_MS);
+};
+await loop();
