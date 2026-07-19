@@ -1,7 +1,7 @@
 {
   "name": "scruple-monorepo",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": ["packages/*", "examples"],
   "scripts": {
     "test": "npm run test --workspaces --if-present"
   }

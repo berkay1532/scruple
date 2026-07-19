@@ -1,0 +1,12 @@
+{
+  "name": "scruple-examples",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@circle-fin/x402-batching": "^2.0.4",
+    "@scruple/client": "*",
+    "@scruple/server": "*",
+    "express": "^4.21.0"
+  },
+  "devDependencies": { "tsx": "^4.19.0", "typescript": "^5.9.3", "@types/express": "^4.17.21" }
+}

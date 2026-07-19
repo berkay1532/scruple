@@ -40,6 +40,20 @@ forge test
 
 28/28 tests passing (`CardIssuer`, `SubscriptionManager`, `MockUSDC`).
 
+## SDKs (Phase 2)
+
+| Package | What it does |
+|---|---|
+| `@scruple/server` | Express middleware: declarative rate card → HTTP 402 challenge → payment verification → settlement via Circle Gateway (batch-settled onchain). |
+| `@scruple/client` | Payer/agent client: detects 402, enforces a spending policy (period budget, per-tx cap, origin allowlist — mirroring CardIssuer semantics), pays via Circle `GatewayClient`, retries. |
+
+See `examples/` for a runnable merchant + agent pair on Arc testnet.
+
+    npm install
+    npm test        # unit suites for both SDKs (network boundaries mocked)
+
+33/33 tests passing (server 17, client 16; network boundaries mocked).
+
 ## Deploy (Arc testnet, chain 5042002)
 
 ```bash
