@@ -203,6 +203,27 @@ contract SubscriptionManagerTest is Test {
         assertEq(usdc.balanceOf(merchant), 9_900_001);
     }
 
+    function test_charge_nonexistentSub_reverts() public {
+        vm.expectRevert(SubscriptionManager.SubNotActive.selector);
+        subs.charge(999);
+    }
+
+    function test_subscribe_revertsOnTokenMismatch() public {
+        MockUSDC otherToken = new MockUSDC();
+        vm.prank(merchant);
+        uint256 planId = subs.createPlan(address(otherToken), 29_000_000, 30 days, 0);
+        uint256 cardId = _card(); // card is scoped to `usdc`, not `otherToken`
+
+        vm.prank(customer);
+        vm.expectRevert(SubscriptionManager.TokenMismatch.selector);
+        subs.subscribe(planId, cardId);
+    }
+
+    function test_constructor_revertsOnZeroTreasury() public {
+        vm.expectRevert(SubscriptionManager.ZeroTreasury.selector);
+        new SubscriptionManager(address(issuer), address(0));
+    }
+
     function test_cancel_customerOnly_stopsCharges() public {
         uint256 planId = _plan(29_000_000);
         uint256 cardId = _card();

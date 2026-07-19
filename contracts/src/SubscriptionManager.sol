@@ -44,15 +44,17 @@ contract SubscriptionManager {
     event SubscriptionCancelled(uint256 indexed subId);
 
     error NotMerchant();
-    error InvalidPeriod();
     error PeriodTooShort();
     error PlanInactive();
     error NotCardOwnerOfCard();
+    error TokenMismatch();
     error SubNotActive();
     error ChargeNotDue();
     error NotCustomer();
+    error ZeroTreasury();
 
     constructor(address cardIssuer_, address treasury_) {
+        if (treasury_ == address(0)) revert ZeroTreasury();
         cardIssuer = CardIssuer(cardIssuer_);
         treasury = treasury_;
     }
@@ -91,6 +93,7 @@ contract SubscriptionManager {
         Plan storage p = _plans[planId];
         if (!p.active) revert PlanInactive();
         if (cardIssuer.getCard(cardId).owner != msg.sender) revert NotCardOwnerOfCard();
+        if (cardIssuer.getCard(cardId).token != p.token) revert TokenMismatch();
         PlanVersion storage v = _versions[planId][p.latestVersion];
         subId = nextSubId++;
         _subs[subId] = Subscription({
@@ -108,8 +111,11 @@ contract SubscriptionManager {
         return _subs[subId];
     }
 
+    /// @dev Charges migrate the sub to the plan's latest version; the card's periodAmount — not
+    /// the subscribed price — is the customer's hard ceiling.
     function charge(uint256 subId) external {
         Subscription storage s = _subs[subId];
+        if (s.customer == address(0)) revert SubNotActive();
         if (s.state != SubState.Active) revert SubNotActive();
         if (block.timestamp < s.nextChargeAt) revert ChargeNotDue();
 
