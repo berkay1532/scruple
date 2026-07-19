@@ -6,6 +6,7 @@ pragma solidity ^0.8.24;
 /// periodDuration, expiry, signer) so future native-7715 wallets map 1:1.
 contract CardIssuer {
     enum CardState { Active, Frozen, Cancelled }
+    enum SpendCheck { Ok, NotActive, Expired, NotAllowed, OverBudget }
 
     struct Card {
         address owner;          // controls lifecycle
@@ -69,30 +70,34 @@ contract CardIssuer {
     }
 
     function _checkSpend(Card memory c, uint256 cardId, address merchant, uint256 amount)
-        internal view returns (bool ok, uint48 newStart, uint256 newSpent)
+        internal view returns (SpendCheck res, uint48 newStart, uint256 newSpent)
     {
-        if (c.state != CardState.Active) return (false, 0, 0);
-        if (c.expiry != 0 && block.timestamp > c.expiry) return (false, 0, 0);
-        if (c.useAllowlist && !allowlist[cardId][merchant]) return (false, 0, 0);
+        // A never-minted cardId zero-initializes to periodDuration == 0, which would
+        // divide-by-zero in _rolledPeriodStart. Treat it as not spendable, up front.
+        if (c.periodDuration == 0) return (SpendCheck.NotActive, 0, 0);
+        if (c.state != CardState.Active) return (SpendCheck.NotActive, 0, 0);
+        if (c.expiry != 0 && block.timestamp > c.expiry) return (SpendCheck.Expired, 0, 0);
+        if (c.useAllowlist && !allowlist[cardId][merchant]) return (SpendCheck.NotAllowed, 0, 0);
         (uint48 start, uint256 spent) = _rolledPeriodStart(c);
-        if (spent + amount > c.periodAmount) return (false, 0, 0);
-        return (true, start, spent + amount);
+        if (spent + amount > c.periodAmount) return (SpendCheck.OverBudget, 0, 0);
+        return (SpendCheck.Ok, start, spent + amount);
     }
 
     function previewSpend(uint256 cardId, address merchant, uint256 amount) external view returns (bool ok) {
-        (ok,,) = _checkSpend(_cards[cardId], cardId, merchant, amount);
+        (SpendCheck res,,) = _checkSpend(_cards[cardId], cardId, merchant, amount);
+        ok = res == SpendCheck.Ok;
     }
 
     function authorizeSpend(uint256 cardId, address merchant, uint256 amount) external {
         if (!authorizedChargers[msg.sender]) revert NotAuthorizedCharger();
         Card storage c = _cards[cardId];
-        if (c.state != CardState.Active) revert CardNotActive();
-        if (c.expiry != 0 && block.timestamp > c.expiry) revert CardExpired();
-        if (c.useAllowlist && !allowlist[cardId][merchant]) revert MerchantNotAllowed();
-        (uint48 start, uint256 spent) = _rolledPeriodStart(c);
-        if (spent + amount > c.periodAmount) revert BudgetExceeded();
-        c.periodStart = start;
-        c.spentInPeriod = spent + amount;
+        (SpendCheck res, uint48 newStart, uint256 newSpent) = _checkSpend(c, cardId, merchant, amount);
+        if (res == SpendCheck.NotActive) revert CardNotActive();
+        if (res == SpendCheck.Expired) revert CardExpired();
+        if (res == SpendCheck.NotAllowed) revert MerchantNotAllowed();
+        if (res == SpendCheck.OverBudget) revert BudgetExceeded();
+        c.periodStart = newStart;
+        c.spentInPeriod = newSpent;
         emit SpendAuthorized(cardId, merchant, amount);
     }
 

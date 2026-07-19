@@ -118,4 +118,16 @@ contract CardIssuerTest is Test {
         assertFalse(issuer.previewSpend(id, makeAddr("otherMerchant"), 1));
         assertEq(issuer.getCard(id).spentInPeriod, 0); // no mutation
     }
+
+    function test_previewSpend_nonexistentCard_returnsFalseNoRevert() public {
+        // cardId never minted -> zero-struct has periodDuration == 0, which must
+        // not reach the divide in _rolledPeriodStart.
+        assertFalse(issuer.previewSpend(999, merchant, 1));
+    }
+
+    function test_setChargerAuthorization_revertsForNonAdmin() public {
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(CardIssuer.NotAdmin.selector);
+        issuer.setChargerAuthorization(makeAddr("stranger"), true);
+    }
 }
