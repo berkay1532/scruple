@@ -23,9 +23,9 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL,
-  block_number INTEGER,
+  block_number BIGINT,
   payload TEXT NOT NULL,
-  at INTEGER NOT NULL
+  at BIGINT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS cursors (key TEXT PRIMARY KEY, last_block TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS endpoints (
@@ -38,38 +38,42 @@ CREATE TABLE IF NOT EXISTS deliveries (
   event_id TEXT NOT NULL,
   endpoint_id INTEGER NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at INTEGER,
-  delivered_at INTEGER,
+  next_attempt_at BIGINT,
+  delivered_at BIGINT,
   last_status INTEGER,
   PRIMARY KEY (event_id, endpoint_id)
 );
 CREATE TABLE IF NOT EXISTS subs (sub_id TEXT PRIMARY KEY, active INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS at_risk_emitted (
   sub_id TEXT NOT NULL,
-  next_charge_at INTEGER NOT NULL,
+  next_charge_at BIGINT NOT NULL,
   PRIMARY KEY (sub_id, next_charge_at)
 );
 `;
 
 export class Store {
   private db: Database.Database;
+  private readonly insertEventTx: (e: DomainEvent) => boolean;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.exec(SCHEMA);
+    this.insertEventTx = this.db.transaction((e: DomainEvent): boolean => {
+      const res = this.db
+        .prepare("INSERT OR IGNORE INTO events (id, type, block_number, payload, at) VALUES (?, ?, ?, ?, ?)")
+        .run(e.id, e.type, e.blockNumber === null ? null : e.blockNumber.toString(), JSON.stringify(e.payload), e.at);
+      if (res.changes === 0) return false;
+      const enqueue = this.db.prepare(
+        "INSERT OR IGNORE INTO deliveries (event_id, endpoint_id, attempts, next_attempt_at) VALUES (?, ?, 0, ?)",
+      );
+      for (const ep of this.listEndpoints()) enqueue.run(e.id, ep.id, e.at);
+      return true;
+    });
   }
 
   insertEvent(e: DomainEvent): boolean {
-    const res = this.db
-      .prepare("INSERT OR IGNORE INTO events (id, type, block_number, payload, at) VALUES (?, ?, ?, ?, ?)")
-      .run(e.id, e.type, e.blockNumber === null ? null : e.blockNumber.toString(), JSON.stringify(e.payload), e.at);
-    if (res.changes === 0) return false;
-    const enqueue = this.db.prepare(
-      "INSERT OR IGNORE INTO deliveries (event_id, endpoint_id, attempts, next_attempt_at) VALUES (?, ?, 0, ?)",
-    );
-    for (const ep of this.listEndpoints()) enqueue.run(e.id, ep.id, e.at);
-    return true;
+    return this.insertEventTx(e);
   }
 
   getCursor(key: string): bigint | null {
