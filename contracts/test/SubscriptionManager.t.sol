@@ -52,4 +52,45 @@ contract SubscriptionManagerTest is Test {
         vm.expectRevert(SubscriptionManager.InvalidPeriod.selector);
         subs.createPlan(address(usdc), 1, 0, 0);
     }
+
+    function _plan(uint256 amount) internal returns (uint256 planId) {
+        vm.prank(merchant);
+        planId = subs.createPlan(address(usdc), amount, 30 days, 0);
+    }
+
+    function _card() internal returns (uint256 cardId) {
+        address[] memory allow = new address[](1);
+        allow[0] = merchant;
+        vm.prank(customer);
+        cardId = issuer.mintCard(customer, address(usdc), 50_000_000, 30 days, 0, allow);
+    }
+
+    function test_subscribe_pinsVersion_andSchedulesImmediateCharge() public {
+        uint256 planId = _plan(29_000_000);
+        uint256 cardId = _card();
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+        SubscriptionManager.Subscription memory s = subs.getSubscription(subId);
+        assertEq(s.customer, customer);
+        assertEq(s.planVersion, 1);
+        assertEq(s.nextChargeAt, uint48(block.timestamp)); // trial 0 → due now
+        assertEq(uint256(s.state), uint256(SubscriptionManager.SubState.Active));
+    }
+
+    function test_subscribe_trialDefersFirstCharge() public {
+        vm.prank(merchant);
+        uint256 planId = subs.createPlan(address(usdc), 29_000_000, 30 days, 14 days);
+        uint256 cardId = _card();
+        vm.prank(customer);
+        uint256 subId = subs.subscribe(planId, cardId);
+        assertEq(subs.getSubscription(subId).nextChargeAt, uint48(block.timestamp + 14 days));
+    }
+
+    function test_subscribe_requiresCardOwnership() public {
+        uint256 planId = _plan(29_000_000);
+        uint256 cardId = _card();
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(SubscriptionManager.NotCardOwnerOfCard.selector);
+        subs.subscribe(planId, cardId);
+    }
 }

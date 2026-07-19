@@ -10,8 +10,18 @@ interface IERC20 {
 /// @title SubscriptionManager — Scruple recurring billing. Non-custodial:
 /// charge() pulls USDC straight from customer to merchant + treasury.
 contract SubscriptionManager {
+    enum SubState { Active, Cancelled, Expired }
+
     struct PlanVersion { uint256 amount; uint48 period; uint48 trialPeriod; }
     struct Plan { address merchant; address token; uint16 latestVersion; bool active; }
+    struct Subscription {
+        address customer;
+        uint256 planId;
+        uint16 planVersion;
+        uint256 cardId;
+        uint48 nextChargeAt;
+        SubState state;
+    }
 
     uint16 public constant FEE_BPS = 100; // 1%
     uint48 public constant GRACE = 3 days;
@@ -23,11 +33,17 @@ contract SubscriptionManager {
     mapping(uint256 => Plan) internal _plans;
     mapping(uint256 => mapping(uint16 => PlanVersion)) internal _versions;
 
+    uint256 public nextSubId;
+    mapping(uint256 => Subscription) internal _subs;
+
     event PlanCreated(uint256 indexed planId, address indexed merchant, uint16 version);
     event PlanVersionPushed(uint256 indexed planId, uint16 version);
+    event SubscriptionCreated(uint256 indexed subId, uint256 indexed planId, address indexed customer, uint256 cardId);
 
     error NotMerchant();
     error InvalidPeriod();
+    error PlanInactive();
+    error NotCardOwnerOfCard();
 
     constructor(address cardIssuer_, address treasury_) {
         cardIssuer = CardIssuer(cardIssuer_);
@@ -57,5 +73,26 @@ contract SubscriptionManager {
 
     function getPlanVersion(uint256 planId, uint16 version) external view returns (PlanVersion memory) {
         return _versions[planId][version];
+    }
+
+    function subscribe(uint256 planId, uint256 cardId) external returns (uint256 subId) {
+        Plan storage p = _plans[planId];
+        if (!p.active) revert PlanInactive();
+        if (cardIssuer.getCard(cardId).owner != msg.sender) revert NotCardOwnerOfCard();
+        PlanVersion storage v = _versions[planId][p.latestVersion];
+        subId = nextSubId++;
+        _subs[subId] = Subscription({
+            customer: msg.sender,
+            planId: planId,
+            planVersion: p.latestVersion,
+            cardId: cardId,
+            nextChargeAt: uint48(block.timestamp + v.trialPeriod),
+            state: SubState.Active
+        });
+        emit SubscriptionCreated(subId, planId, msg.sender, cardId);
+    }
+
+    function getSubscription(uint256 subId) external view returns (Subscription memory) {
+        return _subs[subId];
     }
 }
