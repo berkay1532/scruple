@@ -80,7 +80,10 @@ if (process.env.WEBHOOK_URL && process.env.WEBHOOK_SECRET && store.listEndpoints
   store.addEndpoint(process.env.WEBHOOK_URL, process.env.WEBHOOK_SECRET);
 }
 
-const indexer = new Indexer({ store, reader: chainReader, cardIssuer: CARD_ISSUER, subscriptionManager: SUBSCRIPTION_MANAGER });
+// START_BLOCK: first block worth scanning (e.g. the contracts' deploy block).
+// Without it a fresh DB would crawl the whole chain from genesis.
+const startBlock = process.env.START_BLOCK ? BigInt(process.env.START_BLOCK) : 0n;
+const indexer = new Indexer({ store, reader: chainReader, cardIssuer: CARD_ISSUER, subscriptionManager: SUBSCRIPTION_MANAGER, startBlock });
 const dispatcher = new Dispatcher({ store });
 const monitor = new AtRiskMonitor({ store, reader: subReader });
 
@@ -116,7 +119,8 @@ async function tick() {
   }
 }
 
-console.log(`[scruple-service] starting — rpc=${RPC_URL} db=${DB_PATH} keeper=${keeper ? "on" : "off"}`);
+// Log only the RPC host — the URL may embed an auth token.
+console.log(`[scruple-service] starting — rpc=${new URL(RPC_URL).host} db=${DB_PATH} keeper=${keeper ? "on" : "off"}`);
 const loop = async () => {
   await tick();
   setTimeout(loop, POLL_INTERVAL_MS);

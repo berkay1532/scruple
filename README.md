@@ -88,7 +88,14 @@ wires `CardIssuer.setChargerAuthorization(subscriptionManager, true)` in the
 same broadcast. Verify deployed contracts on
 [`testnet.arcscan.app`](https://testnet.arcscan.app).
 
-**Deployed addresses:** coming with CP2 deploy.
+**Deployed on Arc testnet (chain 5042002):**
+
+| Contract | Address |
+|---|---|
+| `CardIssuer` | [`0xE20EB808cF87B73D716C96CBbb1eee62282506d0`](https://testnet.arcscan.app/address/0xE20EB808cF87B73D716C96CBbb1eee62282506d0) |
+| `SubscriptionManager` | [`0x3d0b19b6B06E568A23AA916270008012Dca55795`](https://testnet.arcscan.app/address/0x3d0b19b6B06E568A23AA916270008012Dca55795) |
+
+First live subscription charge (plan → card → subscribe → `charge()`, $1.00 pulled with an exact 1% fee split): [`0xca8f7227…d1ea7ad`](https://testnet.arcscan.app/tx/0xca8f7227b0d0c20c6c693e07bceac143b967227285f3b44f1d5e759b6d1ea7ad)
 
 ## Docs
 
