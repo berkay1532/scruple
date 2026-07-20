@@ -4,3 +4,4 @@ contracts/broadcast/
 node_modules/
 .env
 .next/
+*.tsbuildinfo
