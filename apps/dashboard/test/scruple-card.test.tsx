@@ -116,6 +116,23 @@ describe("ScrupleCard", () => {
     expect(container.querySelector(".netline .lock")?.textContent).toBe("open");
   });
 
+  it('renders "restricted" in the netline when allowlistCount is null', () => {
+    const { container } = render(
+      <ScrupleCard
+        label="Data-API agent card"
+        cardId="4"
+        limitText="$2.00/day"
+        spent={1_460_000n}
+        limit={2_000_000n}
+        expiry="08/26"
+        status="active"
+        allowlistCount={null}
+      />,
+    );
+
+    expect(container.querySelector(".netline .lock")?.textContent).toBe("🔒 restricted");
+  });
+
   it("renders the merchant count in the netline when allowlistCount is positive", () => {
     const { container } = render(
       <ScrupleCard

@@ -101,6 +101,36 @@ same broadcast. Verify deployed contracts on
 
 First live subscription charge (plan → card → subscribe → `charge()`, $1.00 pulled with an exact 1% fee split): [`0xca8f7227…d1ea7ad`](https://testnet.arcscan.app/tx/0xca8f7227b0d0c20c6c693e07bceac143b967227285f3b44f1d5e759b6d1ea7ad)
 
+## Dashboard (Phase 4b)
+
+`apps/dashboard` — a Next.js App Router dashboard for both sides of Scruple: merchants get
+live revenue, plans, subscriptions, payments, and webhook config; payers/agents get their
+Cards (mint, freeze/unfreeze, cancel) and spend activity. It's a thin read/write layer —
+reads join the service's event feed (`GET /events`, proxied server-side so the bearer
+secret never reaches the browser) with live `viem`/`wagmi` chain reads against
+`CardIssuer`/`SubscriptionManager` on Arc testnet; writes go straight to the chain via the
+connected wallet.
+
+Run it against a running `@scruple/service` instance (see [Services](#services-phase-3)):
+
+```bash
+SERVICE_URL=http://localhost:8787 SERVICE_EVENTS_SECRET=<INGEST_SECRET value> \
+  npm run dev -w scruple-dashboard
+```
+
+| Env var | Required | Purpose |
+|---|---|---|
+| `SERVICE_URL` | yes | Base URL of the `@scruple/service` instance backing this dashboard (its `GET /events` is proxied through `app/api/events`). |
+| `SERVICE_EVENTS_SECRET` | yes | Matches the service's `INGEST_SECRET` — sent as a bearer token to `GET /events`, server-side only. |
+| `NEXT_PUBLIC_RPC_URL` | no | Arc testnet RPC URL for chain reads/writes (defaults to `https://rpc.testnet.arc.network`). |
+
+Honest-data note: a handful of the design mock's sections show data the live API doesn't
+expose yet (webhook delivery status, per-card allowlist address lists, declined-payment
+history) — those panels are trimmed to what's real rather than filled with fabricated
+rows; see `apps/dashboard/components/screens/*.tsx` for the specifics.
+
+_Screenshots land with the demo assets (Phase 4c)._
+
 ## Docs
 
 - [Design doc](docs/superpowers/specs/2026-07-19-scruple-design.md) — full

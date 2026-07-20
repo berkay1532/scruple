@@ -1,7 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useAccount, useConnect, useConnectors, useDisconnect } from "wagmi";
+import { useToast } from "./ui";
 
 export type View = "merchant" | "cards";
 export type MerchantScreen = "overview" | "plans" | "subs" | "payments" | "webhooks";
@@ -31,11 +32,20 @@ function AddressPill() {
 }
 
 /** Injected-connector connect/disconnect toggle. MVP has no wallet picker — one connector. */
-function ConnectButton() {
+export function ConnectButton() {
   const { isConnected } = useAccount();
   const connectors = useConnectors();
-  const { connect, isPending } = useConnect();
+  const { connect, isPending, error } = useConnect();
   const { disconnect } = useDisconnect();
+  const toast = useToast();
+
+  // wagmi's `connect` (the mutate-style variant) doesn't throw or return a
+  // promise — it reports failures (rejected in wallet, no connector, wrong
+  // chain, ...) via this `error` state instead. Surface it as a toast so a
+  // failed connect isn't silent.
+  useEffect(() => {
+    if (error) toast(error.message || "Connection failed.");
+  }, [error, toast]);
 
   if (isConnected) {
     return (

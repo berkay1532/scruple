@@ -41,3 +41,22 @@ export function timeAgo(atMs: number, nowMs: number): string {
   const d = new Date(atMs);
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
+
+/** Formats a unix-seconds timestamp as a full UTC date, e.g. "Aug 19, 2026". */
+export function formatDate(atS: number): string {
+  const d = new Date(atS * 1000);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+
+/**
+ * Parses a USD decimal string (e.g. "29", "29.5", "0.001") into an atomic
+ * (6-decimal) bigint. Returns null for anything that isn't a non-negative
+ * decimal with at most 6 fractional digits (empty string, negative sign,
+ * multiple dots, stray characters, >6 decimal places).
+ */
+export function parseUsdToAtomic(input: string): bigint | null {
+  const trimmed = input.trim();
+  if (!/^\d+(\.\d{1,6})?$/.test(trimmed)) return null;
+  const [whole, frac = ""] = trimmed.split(".");
+  return BigInt(whole) * 1_000_000n + BigInt(frac.padEnd(6, "0"));
+}

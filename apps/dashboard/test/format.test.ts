@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { cosmeticCardNumber, formatUsd, shortAddr, shortHash, timeAgo } from "../lib/format";
+import {
+  cosmeticCardNumber,
+  formatDate,
+  formatUsd,
+  parseUsdToAtomic,
+  shortAddr,
+  shortHash,
+  timeAgo,
+} from "../lib/format";
 
 describe("formatUsd", () => {
   it("formats a sub-cent atomic amount from bigint", () => {
@@ -60,5 +68,58 @@ describe("timeAgo", () => {
     const at = Date.UTC(2026, 6, 20, 9, 0, 0);
     const now = at + 5 * 24 * 60 * 60_000;
     expect(timeAgo(at, now)).toBe("Jul 20");
+  });
+});
+
+describe("formatDate", () => {
+  it("renders a full UTC date from a unix-seconds timestamp", () => {
+    const atS = Date.UTC(2026, 7, 19, 12, 0, 0) / 1000;
+    expect(formatDate(atS)).toBe("Aug 19, 2026");
+  });
+
+  it("renders the epoch as Jan 1, 1970", () => {
+    expect(formatDate(0)).toBe("Jan 1, 1970");
+  });
+});
+
+describe("parseUsdToAtomic", () => {
+  it("parses a whole-dollar amount", () => {
+    expect(parseUsdToAtomic("29")).toBe(29_000_000n);
+  });
+
+  it("parses a fractional amount, padding to 6 decimals", () => {
+    expect(parseUsdToAtomic("29.5")).toBe(29_500_000n);
+  });
+
+  it("parses a full 6-decimal amount", () => {
+    expect(parseUsdToAtomic("0.001")).toBe(1_000n);
+  });
+
+  it("parses zero", () => {
+    expect(parseUsdToAtomic("0")).toBe(0n);
+  });
+
+  it("tolerates surrounding whitespace", () => {
+    expect(parseUsdToAtomic("  29.00  ")).toBe(29_000_000n);
+  });
+
+  it("rejects an empty string", () => {
+    expect(parseUsdToAtomic("")).toBeNull();
+  });
+
+  it("rejects a negative amount", () => {
+    expect(parseUsdToAtomic("-1")).toBeNull();
+  });
+
+  it("rejects more than 6 fractional digits", () => {
+    expect(parseUsdToAtomic("1.1234567")).toBeNull();
+  });
+
+  it("rejects non-numeric input", () => {
+    expect(parseUsdToAtomic("abc")).toBeNull();
+  });
+
+  it("rejects multiple decimal points", () => {
+    expect(parseUsdToAtomic("1.2.3")).toBeNull();
   });
 });

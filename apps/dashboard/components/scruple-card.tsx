@@ -31,13 +31,21 @@ export function ScrupleCard({
   limit: bigint;
   expiry: string;
   status: CardStatus;
-  allowlistCount: number;
+  /** Number of allowed merchants, 0 for an open card, or null when the card
+   *  is allowlist-restricted but the actual count isn't known (the chain
+   *  read only exposes a `useAllowlist` boolean, not the list itself). */
+  allowlistCount: number | null;
   onClick?: () => void;
 }) {
   const { pct, tone } = cardProgress(spent, limit);
   const badge = STATUS_BADGE[status];
   const frozen = status === "frozen";
-  const lockText = allowlistCount > 0 ? `🔒 ${allowlistCount} merchant${allowlistCount === 1 ? "" : "s"}` : "open";
+  const lockText =
+    allowlistCount === null
+      ? "🔒 restricted"
+      : allowlistCount > 0
+        ? `🔒 ${allowlistCount} merchant${allowlistCount === 1 ? "" : "s"}`
+        : "open";
 
   return (
     <button
