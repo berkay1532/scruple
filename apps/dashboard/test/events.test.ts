@@ -5,6 +5,7 @@ import {
   feedTone,
   needsAttention,
   revenueByDay,
+  scopedFeedEvents,
   scopedPaymentEvents,
   scopeToMerchant,
 } from "../lib/events";
@@ -275,6 +276,58 @@ describe("scopedPaymentEvents", () => {
       ev({ type: "subscription.created", payload: { subId: "1", planId: "1", customer: "0x1", cardId: "1" }, at: 0 }),
     ];
     expect(scopedPaymentEvents(events, new Set(["1"]))).toHaveLength(0);
+  });
+});
+
+describe("scopedFeedEvents", () => {
+  const MERCHANT_A = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+  const MERCHANT_B = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
+
+  function twoMerchantEvents(): EventRow[] {
+    return [
+      ev({ type: "plan.created", payload: { planId: "1", merchant: MERCHANT_A }, at: 0 }),
+      ev({ type: "plan.created", payload: { planId: "2", merchant: MERCHANT_B }, at: 0 }),
+      ev({ type: "subscription.created", payload: { subId: "10", planId: "1", customer: "0xc1", cardId: "1" }, at: 0 }),
+      ev({ type: "subscription.created", payload: { subId: "20", planId: "2", customer: "0xc2", cardId: "2" }, at: 0 }),
+      ev({ type: "payment.succeeded", payload: { subId: "10", version: "1", amount: "1000000", fee: "10000" }, at: 0 }),
+      ev({ type: "payment.succeeded", payload: { subId: "20", version: "1", amount: "2000000", fee: "20000" }, at: 0 }),
+      ev({
+        type: "settlement.batched",
+        payload: { endpoint: "/api/quote", payer: "0x1", atomic: "1000", price: "$0.001", transaction: "0xabc" },
+        at: 0,
+      }),
+      ev({ type: "card.created", payload: { cardId: "6", owner: "0x1", signer: "0x2" }, at: 0 }),
+    ];
+  }
+
+  it("excludes another merchant's payment.succeeded row", () => {
+    const events = twoMerchantEvents();
+    const { planIds, subIds } = scopeToMerchant(events, MERCHANT_A);
+
+    const rows = scopedFeedEvents(events, planIds, subIds);
+
+    expect(rows.some((e) => e.type === "payment.succeeded" && e.payload.subId === "20")).toBe(false);
+    expect(rows.some((e) => e.type === "payment.succeeded" && e.payload.subId === "10")).toBe(true);
+  });
+
+  it("retains card.created and settlement.batched rows regardless of merchant scope", () => {
+    const events = twoMerchantEvents();
+    const { planIds, subIds } = scopeToMerchant(events, MERCHANT_A);
+
+    const rows = scopedFeedEvents(events, planIds, subIds);
+
+    expect(rows.some((e) => e.type === "card.created")).toBe(true);
+    expect(rows.some((e) => e.type === "settlement.batched")).toBe(true);
+  });
+
+  it("keeps plan.created only for the scoped merchant's own plans", () => {
+    const events = twoMerchantEvents();
+    const { planIds, subIds } = scopeToMerchant(events, MERCHANT_A);
+
+    const rows = scopedFeedEvents(events, planIds, subIds);
+
+    expect(rows.some((e) => e.type === "plan.created" && e.payload.planId === "1")).toBe(true);
+    expect(rows.some((e) => e.type === "plan.created" && e.payload.planId === "2")).toBe(false);
   });
 });
 

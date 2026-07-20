@@ -136,6 +136,33 @@ export function scopedPaymentEvents(events: EventRow[], mySubIds: ReadonlySet<st
   });
 }
 
+/**
+ * Live-activity feed events scoped to one merchant, mirroring
+ * `scopedPaymentEvents`'s per-type treatment:
+ *  - `settlement.batched` is kept unconditionally — same own-ingest
+ *    reasoning as `scopedPaymentEvents`: metered settlements only ever
+ *    arrive at a merchant's own ingest forwarder, so there's no
+ *    cross-merchant row to leak.
+ *  - `plan.created` is kept only when its planId is in `myPlanIds`.
+ *  - `card.created` is kept unconditionally — card minting carries no
+ *    dollar figures and isn't attributable to a specific merchant, so
+ *    there's nothing to leak by showing it feed-wide.
+ *  - every other type (subscription.*, payment.*) is kept only when its
+ *    subId is in `mySubIds` (see `scopeToMerchant`).
+ */
+export function scopedFeedEvents(
+  events: EventRow[],
+  myPlanIds: ReadonlySet<string>,
+  mySubIds: ReadonlySet<string>,
+): EventRow[] {
+  return events.filter((e) => {
+    if (e.type === "settlement.batched") return true;
+    if (e.type === "plan.created") return myPlanIds.has(e.payload.planId);
+    if (e.type === "card.created") return true;
+    return mySubIds.has(e.payload.subId);
+  });
+}
+
 export interface AttentionRow {
   tone: "warn" | "bad";
   kind: string;

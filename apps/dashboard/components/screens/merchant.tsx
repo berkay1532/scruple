@@ -17,6 +17,7 @@ import {
   feedTone,
   needsAttention,
   revenueByDay,
+  scopedFeedEvents,
   scopedPaymentEvents,
   scopeToMerchant,
   type EventRow,
@@ -33,6 +34,7 @@ function periodDaysLabel(periodS: number): string {
 }
 
 const EMPTY_SUB_IDS: ReadonlySet<string> = new Set();
+const EMPTY_PLAN_IDS: ReadonlySet<string> = new Set();
 
 /* ================================================================ */
 /* Overview                                                          */
@@ -48,10 +50,12 @@ function Overview({ events }: { events: EventRow[] }) {
   // all events), so revenue and attention rows below must be narrowed to
   // this merchant's own plans/subs before display — see lib/events.ts's
   // `scopeToMerchant` for the join and its subId-uniqueness caveat.
-  const mySubIds = useMemo(
-    () => (address ? scopeToMerchant(events, address).subIds : EMPTY_SUB_IDS),
+  const myScope = useMemo(
+    () => (address ? scopeToMerchant(events, address) : null),
     [events, address],
   );
+  const myPlanIds = myScope?.planIds ?? EMPTY_PLAN_IDS;
+  const mySubIds = myScope?.subIds ?? EMPTY_SUB_IDS;
 
   const myPaymentEvents = useMemo(() => scopedPaymentEvents(events, mySubIds), [events, mySubIds]);
 
@@ -85,7 +89,16 @@ function Overview({ events }: { events: EventRow[] }) {
     () => needsAttention(events).filter((row) => mySubIds.has(row.subId)),
     [events, mySubIds],
   );
-  const feedRows = useMemo(() => [...events].sort((a, b) => b.at - a.at).slice(0, 8), [events]);
+  // Scope the live-activity feed to this merchant too — same rationale as
+  // attnRows above, applied per event type by scopedFeedEvents (see
+  // lib/events.ts).
+  const feedRows = useMemo(
+    () =>
+      scopedFeedEvents(events, myPlanIds, mySubIds)
+        .sort((a, b) => b.at - a.at)
+        .slice(0, 8),
+    [events, myPlanIds, mySubIds],
+  );
 
   return (
     <>
