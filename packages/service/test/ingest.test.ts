@@ -69,18 +69,13 @@ describe("ingest server", () => {
 
   it("rejects oversized bodies with 413", async () => {
     const body = "x".repeat(70_000);
-    try {
-      const res = await fetch(`${base}/ingest`, {
-        method: "POST",
-        headers: { "scruple-signature": sign(body) },
-        body,
-      });
-      expect(res.status).toBe(413);
-      expect(await res.json()).toEqual({ error: "body too large" });
-    } catch {
-      // Socket may be destroyed mid-send before a response is received; that's an
-      // acceptable outcome of enforcing the body size cap.
-    }
+    const res = await fetch(`${base}/ingest`, {
+      method: "POST",
+      headers: { "scruple-signature": sign(body) },
+      body,
+    });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "body too large" });
   });
 
   it("rejects non-finite `at` values", async () => {

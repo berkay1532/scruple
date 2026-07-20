@@ -52,7 +52,7 @@ See `examples/` for a runnable merchant + agent pair on Arc testnet.
     npm install
     npm test        # unit suites for both SDKs (network boundaries mocked)
 
-70/70 tests passing (server 21, client 17, service 32; network boundaries mocked).
+84/84 tests passing (server 23, client 17, service 44; network boundaries mocked).
 
 ## Services (Phase 3)
 
@@ -70,7 +70,11 @@ See `examples/` for a runnable merchant + agent pair on Arc testnet.
 
 Event taxonomy: `card.created|frozen|unfrozen|cancelled`, `plan.created|version_pushed`,
 `subscription.created|expired|cancelled|at_risk`, `payment.succeeded`.
-(`payment.attempt_failed`/`payment.overdue` detection and `settlement.batched` ingest land with the dashboard phase.)
+Full taxonomy is live: `payment.attempt_failed`/`payment.overdue` are detected by
+the keeper, and metered payments flow in as `settlement.batched` via the ingest API
+(`POST /ingest`, HMAC-signed — plug `createServiceForwarder` from `@scruple/server`
+into the middleware's `onPayment`). The dashboard reads `GET /events` (bearer auth).
+Enable with `INGEST_PORT`/`INGEST_SECRET`.
 Store is SQLite for the MVP (schema is Postgres-portable).
 
 ## Deploy (Arc testnet, chain 5042002)

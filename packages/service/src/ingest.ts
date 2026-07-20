@@ -9,8 +9,8 @@ function safeEqual(a: string, b: string): boolean {
   return ba.length === bb.length && timingSafeEqual(ba, bb);
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "content-type": "application/json" });
+function json(res: ServerResponse, status: number, body: unknown, headers?: Record<string, string>): void {
+  res.writeHead(status, { "content-type": "application/json", ...headers });
   res.end(JSON.stringify(body));
 }
 
@@ -37,7 +37,13 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
       total += c.length;
       if (total > MAX_BODY_BYTES) {
         cleanup();
-        req.destroy();
+        // Stop consuming but don't destroy the socket — destroying it here races
+        // with the 413 response write, so clients can see a connection reset
+        // instead of the response. Let the caller respond normally; the
+        // `connection: close` header on the 413 tells Node to tear the socket
+        // down cleanly once the response has flushed.
+        req.removeAllListeners("data");
+        req.pause();
         reject(new BodyTooLargeError());
         return;
       }
@@ -72,7 +78,10 @@ export function createIngestServer(opts: { store: Store; secret: string; now?: (
           bodyBuf = await readBody(req);
         } catch (err) {
           if (err instanceof BodyTooLargeError) {
-            return json(res, 413, { error: "body too large" });
+            // The client may still be mid-send; tell it to stop and close the
+            // socket only after this response has flushed, so it observes the
+            // 413 rather than an abrupt reset.
+            return json(res, 413, { error: "body too large" }, { connection: "close" });
           }
           throw err;
         }
