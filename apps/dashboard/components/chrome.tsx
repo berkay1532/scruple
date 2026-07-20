@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useConnect, useConnectors, useDisconnect } from "wagmi";
 
 export type View = "merchant" | "cards";
 export type MerchantScreen = "overview" | "plans" | "subs" | "payments" | "webhooks";
@@ -25,23 +25,36 @@ function shortenAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
-/**
- * useAccount() throws WagmiProviderNotFoundError if rendered outside a
- * WagmiProvider. Task 4 wires the real WagmiProvider into
- * components/providers.tsx; until then this falls back to "—". The hook is
- * still called unconditionally on every render (only its synchronous throw,
- * which happens before any further hooks run inside useAccount, is caught),
- * so this does not violate the rules of hooks.
- */
 function AddressPill() {
-  let address: string | undefined;
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    ({ address } = useAccount());
-  } catch {
-    address = undefined;
-  }
+  const { address } = useAccount();
   return <span className="addr mono">{address ? shortenAddress(address) : "—"}</span>;
+}
+
+/** Injected-connector connect/disconnect toggle. MVP has no wallet picker — one connector. */
+function ConnectButton() {
+  const { isConnected } = useAccount();
+  const connectors = useConnectors();
+  const { connect, isPending } = useConnect();
+  const { disconnect } = useDisconnect();
+
+  if (isConnected) {
+    return (
+      <button className="btn small" onClick={() => disconnect()}>
+        Disconnect
+      </button>
+    );
+  }
+
+  const connector = connectors[0];
+  return (
+    <button
+      className="btn small"
+      onClick={() => connector && connect({ connector })}
+      disabled={isPending || !connector}
+    >
+      {isPending ? "Connecting…" : "Connect"}
+    </button>
+  );
 }
 
 function toggleTheme() {
@@ -126,6 +139,7 @@ export function Chrome({
               Arc Testnet
             </span>
             <AddressPill />
+            <ConnectButton />
             <button className="theme-btn" onClick={toggleTheme}>
               Theme
             </button>
