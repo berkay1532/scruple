@@ -1,4 +1,5 @@
 import type { Request, RequestHandler } from "express";
+import { randomUUID } from "node:crypto";
 import { buildRateCardLookup, matchRouteInLookup, type RateCard } from "./ratecard";
 import { ARC_TESTNET_NETWORK } from "./constants";
 import {
@@ -7,6 +8,7 @@ import {
 } from "./x402";
 
 export interface PaymentEvent {
+  id: string;
   endpoint: string;
   payer?: string;
   atomic: bigint;
@@ -84,6 +86,7 @@ export function scruple(opts: ScrupleOptions): RequestHandler {
     // error or a rejected promise must not delay next() or crash the
     // process. Promise.resolve().then(...) contains both cases uniformly.
     const event: PaymentEvent = {
+      id: randomUUID(),
       endpoint: req.path, payer: settled.payer, atomic: match.atomic,
       price: match.price, transaction: settled.transaction, at: Date.now(),
     };

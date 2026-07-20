@@ -61,6 +61,8 @@ describe("scruple middleware", () => {
     expect(pr).toEqual({ success: true, transaction: "0xTX", network: "eip155:5042002", payer: "0xPAYER" });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ endpoint: "/api/quote", payer: "0xPAYER", atomic: 1000n, price: "$0.001" });
+    expect(typeof events[0].id).toBe("string");
+    expect(events[0].id.length).toBeGreaterThan(10);
   });
 
   it("returns 402 with reason when settlement fails, and does not serve", async () => {
