@@ -9,7 +9,7 @@
 import { useMemo } from "react";
 import { useAccount, useReadContracts, useWriteContract } from "wagmi";
 import { SUBSCRIPTION_MANAGER_ABI } from "./abi";
-import { ADDRESSES } from "./chain";
+import { ADDRESSES, arcTestnet } from "./chain";
 import { needsAttention, type EventRow } from "./events";
 
 export interface MerchantPlan {
@@ -154,9 +154,8 @@ export function useMerchant(events: EventRow[]): {
   const attentionBySub = useMemo(() => {
     const map = new Map<string, "at-risk" | "overdue">();
     for (const row of needsAttention(events)) {
-      const id = row.title.replace("Sub #", "");
-      if (map.has(id)) continue;
-      map.set(id, row.kind === "subscription.at_risk" ? "at-risk" : "overdue");
+      if (map.has(row.subId)) continue;
+      map.set(row.subId, row.kind === "subscription.at_risk" ? "at-risk" : "overdue");
     }
     return map;
   }, [events]);
@@ -191,6 +190,7 @@ export function useMerchant(events: EventRow[]): {
       abi: SUBSCRIPTION_MANAGER_ABI,
       functionName: "createPlan",
       args: [ADDRESSES.usdc, amountAtomic, periodS, trialS],
+      chainId: arcTestnet.id,
     });
   }
 

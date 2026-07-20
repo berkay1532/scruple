@@ -88,6 +88,7 @@ export interface AttentionRow {
   kind: string;
   title: string;
   why: string;
+  subId: string;
 }
 
 /**
@@ -112,6 +113,7 @@ export function needsAttention(events: EventRow[]): AttentionRow[] {
           kind: e.type,
           title: `Sub #${e.payload.subId}`,
           why: AT_RISK_REASON_COPY[e.payload.reason] ?? e.payload.reason,
+          subId: e.payload.subId,
         };
       }
       return {
@@ -119,6 +121,7 @@ export function needsAttention(events: EventRow[]): AttentionRow[] {
         kind: e.type,
         title: `Sub #${e.payload.subId}`,
         why: "Payment overdue",
+        subId: e.payload.subId,
       };
     });
 }

@@ -220,8 +220,10 @@ describe("needsAttention", () => {
     // newest first: sub 8's overdue (now - 1000) is newer than sub 17's at_risk (now - 5000)
     expect(rows[0].kind).toBe("payment.overdue");
     expect(rows[0].tone).toBe("bad");
+    expect(rows[0].subId).toBe("8");
     expect(rows[1].kind).toBe("subscription.at_risk");
     expect(rows[1].tone).toBe("warn");
+    expect(rows[1].subId).toBe("17");
   });
 
   it("maps insufficient_balance reason to its display copy", () => {
@@ -276,5 +278,6 @@ describe("needsAttention", () => {
     expect(rows[0].kind).toBe("subscription.at_risk");
     expect(rows[0].tone).toBe("warn");
     expect(rows[0].why).toBe("Balance below renewal amount");
+    expect(rows[0].subId).toBe("5");
   });
 });

@@ -7,7 +7,7 @@
 import { useMemo } from "react";
 import { useAccount, useReadContracts, useWriteContract } from "wagmi";
 import { CARD_ISSUER_ABI } from "./abi";
-import { ADDRESSES } from "./chain";
+import { ADDRESSES, arcTestnet } from "./chain";
 import { deriveMyCards } from "./cards";
 import type { EventRow } from "./events";
 
@@ -104,6 +104,7 @@ export function useCardActions() {
         opts.expiryS,
         opts.allowlist,
       ],
+      chainId: arcTestnet.id,
     });
   }
 
@@ -113,6 +114,7 @@ export function useCardActions() {
       abi: CARD_ISSUER_ABI,
       functionName: "freeze",
       args: [BigInt(cardId)],
+      chainId: arcTestnet.id,
     });
   }
 
@@ -122,6 +124,7 @@ export function useCardActions() {
       abi: CARD_ISSUER_ABI,
       functionName: "unfreeze",
       args: [BigInt(cardId)],
+      chainId: arcTestnet.id,
     });
   }
 
@@ -131,6 +134,7 @@ export function useCardActions() {
       abi: CARD_ISSUER_ABI,
       functionName: "cancel",
       args: [BigInt(cardId)],
+      chainId: arcTestnet.id,
     });
   }
 
