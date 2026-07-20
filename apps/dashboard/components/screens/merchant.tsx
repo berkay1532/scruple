@@ -8,6 +8,7 @@
 // section is trimmed rather than faked — see the Task 5 report for the full
 // list of deviations.
 import { useMemo, useState, type FormEvent } from "react";
+import { useAccount } from "wagmi";
 import type { MerchantScreen } from "@/components/chrome";
 import { Badge, Drawer, Panel, useToast } from "@/components/ui";
 import { RevChart } from "@/components/rev-chart";
@@ -16,6 +17,8 @@ import {
   feedTone,
   needsAttention,
   revenueByDay,
+  scopedPaymentEvents,
+  scopeToMerchant,
   type EventRow,
 } from "@/lib/events";
 import { formatDate, formatUsd, parseUsdToAtomic, shortAddr, shortHash, timeAgo } from "@/lib/format";
@@ -29,15 +32,30 @@ function periodDaysLabel(periodS: number): string {
   return `${days} day${days === 1 ? "" : "s"}`;
 }
 
+const EMPTY_SUB_IDS: ReadonlySet<string> = new Set();
+
 /* ================================================================ */
 /* Overview                                                          */
 /* ================================================================ */
 
 function Overview({ events }: { events: EventRow[] }) {
   const { subs } = useMerchant(events);
+  const { address } = useAccount();
   const nowMs = Date.now();
 
-  const daily = useMemo(() => revenueByDay(events, 30, nowMs), [events, nowMs]);
+  // The events feed is shared across every merchant on this one contract
+  // deployment (createPlan records merchant=msg.sender; the service indexes
+  // all events), so revenue and attention rows below must be narrowed to
+  // this merchant's own plans/subs before display — see lib/events.ts's
+  // `scopeToMerchant` for the join and its subId-uniqueness caveat.
+  const mySubIds = useMemo(
+    () => (address ? scopeToMerchant(events, address).subIds : EMPTY_SUB_IDS),
+    [events, address],
+  );
+
+  const myPaymentEvents = useMemo(() => scopedPaymentEvents(events, mySubIds), [events, mySubIds]);
+
+  const daily = useMemo(() => revenueByDay(myPaymentEvents, 30, nowMs), [myPaymentEvents, nowMs]);
   const revenueThisMonth = daily.reduce((a, b) => a + b, 0);
 
   const activeSubCount = subs.filter((s) => s.status !== "cancelled" && s.status !== "expired").length;
@@ -60,14 +78,23 @@ function Overview({ events }: { events: EventRow[] }) {
   );
   const meteredRevenueToday = todayBatched.reduce((sum, e) => sum + BigInt(e.payload.atomic || "0"), 0n);
 
-  const attnRows = needsAttention(events);
+  // needsAttention runs over the full (unscoped) feed, so filter its rows to
+  // this merchant's own subs — otherwise another merchant's at-risk/overdue
+  // subscribers would show up here.
+  const attnRows = useMemo(
+    () => needsAttention(events).filter((row) => mySubIds.has(row.subId)),
+    [events, mySubIds],
+  );
   const feedRows = useMemo(() => [...events].sort((a, b) => b.at - a.at).slice(0, 8), [events]);
 
   return (
     <>
       <div>
         <h1>Good afternoon — here&apos;s your money.</h1>
-        <p className="sub">All figures are live from Arc testnet · chain 5042002</p>
+        <p className="sub">
+          All figures are live from Arc testnet · chain 5042002 — counters (including metered calls today) reflect
+          only the most recent 200 events, so very old activity may not be represented.
+        </p>
       </div>
 
       <div className="grid cols-3">
@@ -445,12 +472,22 @@ function txHashFor(e: EventRow): string {
 }
 
 function Payments({ events }: { events: EventRow[] }) {
+  const { address } = useAccount();
+
+  // Scope payment.succeeded to this merchant's own subs — the events feed is
+  // shared across every merchant on this one contract deployment, so
+  // filtering by type alone would show other merchants' charges. See
+  // lib/events.ts's `scopeToMerchant` for the join and its subId-uniqueness
+  // caveat, and `scopedPaymentEvents` there for why settlement.batched rows
+  // don't need the same treatment.
+  const mySubIds = useMemo(
+    () => (address ? scopeToMerchant(events, address).subIds : EMPTY_SUB_IDS),
+    [events, address],
+  );
+
   const rows = useMemo(
-    () =>
-      events
-        .filter((e) => e.type === "payment.succeeded" || e.type === "settlement.batched")
-        .sort((a, b) => b.at - a.at),
-    [events],
+    () => scopedPaymentEvents(events, mySubIds).sort((a, b) => b.at - a.at),
+    [events, mySubIds],
   );
   const nowMs = Date.now();
 

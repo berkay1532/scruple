@@ -5,6 +5,8 @@ import {
   feedTone,
   needsAttention,
   revenueByDay,
+  scopedPaymentEvents,
+  scopeToMerchant,
 } from "../lib/events";
 import { timeAgo } from "../lib/format";
 
@@ -187,6 +189,92 @@ describe("revenueByDay", () => {
       ev({ type: "card.created", payload: { cardId: "1", owner: "0x1", signer: "0x1" }, at: now }),
     ];
     expect(revenueByDay(events, 1, now)).toEqual([0]);
+  });
+});
+
+describe("scopeToMerchant", () => {
+  const MERCHANT_A = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+  const MERCHANT_B = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
+
+  function twoMerchantEvents(): EventRow[] {
+    return [
+      ev({ type: "plan.created", payload: { planId: "1", merchant: MERCHANT_A }, at: 0 }),
+      ev({ type: "plan.created", payload: { planId: "2", merchant: MERCHANT_B }, at: 0 }),
+      ev({ type: "subscription.created", payload: { subId: "10", planId: "1", customer: "0xc1", cardId: "1" }, at: 0 }),
+      ev({ type: "subscription.created", payload: { subId: "20", planId: "2", customer: "0xc2", cardId: "2" }, at: 0 }),
+      ev({ type: "payment.succeeded", payload: { subId: "10", version: "1", amount: "1000000", fee: "10000" }, at: 0 }),
+      ev({ type: "payment.succeeded", payload: { subId: "20", version: "1", amount: "2000000", fee: "20000" }, at: 0 }),
+    ];
+  }
+
+  it("returns only the plan ids owned by the given merchant", () => {
+    const { planIds } = scopeToMerchant(twoMerchantEvents(), MERCHANT_A);
+    expect(planIds).toEqual(new Set(["1"]));
+  });
+
+  it("returns only the sub ids under the given merchant's plans", () => {
+    const { subIds } = scopeToMerchant(twoMerchantEvents(), MERCHANT_A);
+    expect(subIds).toEqual(new Set(["10"]));
+  });
+
+  it("scopes the other merchant independently, with no overlap", () => {
+    const a = scopeToMerchant(twoMerchantEvents(), MERCHANT_A);
+    const b = scopeToMerchant(twoMerchantEvents(), MERCHANT_B);
+    expect(a.subIds).toEqual(new Set(["10"]));
+    expect(b.subIds).toEqual(new Set(["20"]));
+    expect([...a.subIds].some((id) => b.subIds.has(id))).toBe(false);
+  });
+
+  it("matches the merchant address case-insensitively", () => {
+    const { planIds, subIds } = scopeToMerchant(twoMerchantEvents(), MERCHANT_A.toLowerCase());
+    expect(planIds).toEqual(new Set(["1"]));
+    expect(subIds).toEqual(new Set(["10"]));
+  });
+
+  it("returns empty sets for a merchant with no plans", () => {
+    const { planIds, subIds } = scopeToMerchant(twoMerchantEvents(), "0xC0ffee00000000000000000000000000000000");
+    expect(planIds.size).toBe(0);
+    expect(subIds.size).toBe(0);
+  });
+
+  it("payments filtering (scopedPaymentEvents) shows only this merchant's charges", () => {
+    const events = twoMerchantEvents();
+    const { subIds: mySubIds } = scopeToMerchant(events, MERCHANT_A);
+
+    const rows = scopedPaymentEvents(events, mySubIds);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].payload.subId).toBe("10");
+  });
+});
+
+describe("scopedPaymentEvents", () => {
+  it("keeps payment.succeeded only for the given subIds", () => {
+    const events: EventRow[] = [
+      ev({ type: "payment.succeeded", payload: { subId: "1", version: "1", amount: "1", fee: "0" }, at: 0 }),
+      ev({ type: "payment.succeeded", payload: { subId: "2", version: "1", amount: "1", fee: "0" }, at: 0 }),
+    ];
+    const rows = scopedPaymentEvents(events, new Set(["1"]));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].payload.subId).toBe("1");
+  });
+
+  it("keeps every settlement.batched row unconditionally", () => {
+    const events: EventRow[] = [
+      ev({
+        type: "settlement.batched",
+        payload: { endpoint: "/x", payer: "0x1", atomic: "1", price: "$0", transaction: "0x1" },
+        at: 0,
+      }),
+    ];
+    expect(scopedPaymentEvents(events, new Set())).toHaveLength(1);
+  });
+
+  it("drops unrelated event types", () => {
+    const events: EventRow[] = [
+      ev({ type: "subscription.created", payload: { subId: "1", planId: "1", customer: "0x1", cardId: "1" }, at: 0 }),
+    ];
+    expect(scopedPaymentEvents(events, new Set(["1"]))).toHaveLength(0);
   });
 });
 

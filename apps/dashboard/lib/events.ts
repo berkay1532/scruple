@@ -83,6 +83,59 @@ export function revenueByDay(events: EventRow[], days: number, nowMs: number): n
   return out;
 }
 
+/**
+ * Merchant-scoped plan/sub id sets, derived purely from the event feed (no
+ * contract reads) — the same join pattern as Cards' Activity view (subInfo /
+ * merchantByPlan): plan.created events whose payload.merchant matches
+ * `merchant` (case-insensitive) give `planIds`; subscription.created events
+ * whose payload.planId is in that set give `subIds`.
+ *
+ * This scoping is required because contracts are a single shared deployment
+ * across all merchants — createPlan records `merchant: msg.sender` on-chain,
+ * and the service indexes every merchant's events into one feed. Without
+ * this join, any view built directly off `events` (e.g. filtering
+ * payment.succeeded by type alone) leaks other merchants' data.
+ *
+ * Safety note: subId matching downstream (e.g. `mySubIds.has(payload.subId)`)
+ * relies on subId being globally unique across the shared
+ * SubscriptionManager contract — true today since there's one contract
+ * instance for all merchants, so no two merchants can mint the same subId.
+ */
+export function scopeToMerchant(events: EventRow[], merchant: string): { planIds: Set<string>; subIds: Set<string> } {
+  const target = merchant.toLowerCase();
+  const planIds = new Set<string>();
+  for (const e of events) {
+    if (e.type !== "plan.created") continue;
+    if (e.payload.merchant?.toLowerCase() !== target) continue;
+    planIds.add(e.payload.planId);
+  }
+
+  const subIds = new Set<string>();
+  for (const e of events) {
+    if (e.type !== "subscription.created") continue;
+    if (!planIds.has(e.payload.planId)) continue;
+    subIds.add(e.payload.subId);
+  }
+
+  return { planIds, subIds };
+}
+
+/**
+ * Payment-shaped events scoped to one merchant: `payment.succeeded` is kept
+ * only when its subId is in `mySubIds` (see `scopeToMerchant`).
+ * `settlement.batched` rows are kept unconditionally — metered settlements
+ * only ever arrive at a merchant's own ingest forwarder (there is no
+ * cross-merchant metered feed to leak from), so they need no further
+ * scoping. All other event types are dropped. Used by both the Payments
+ * table and Overview's revenue chart so the two stay consistent.
+ */
+export function scopedPaymentEvents(events: EventRow[], mySubIds: ReadonlySet<string>): EventRow[] {
+  return events.filter((e) => {
+    if (e.type === "payment.succeeded") return mySubIds.has(e.payload.subId);
+    return e.type === "settlement.batched";
+  });
+}
+
 export interface AttentionRow {
   tone: "warn" | "bad";
   kind: string;

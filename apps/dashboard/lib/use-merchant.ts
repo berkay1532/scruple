@@ -10,7 +10,7 @@ import { useMemo } from "react";
 import { useAccount, useReadContracts, useWriteContract } from "wagmi";
 import { SUBSCRIPTION_MANAGER_ABI } from "./abi";
 import { ADDRESSES, arcTestnet } from "./chain";
-import { needsAttention, type EventRow } from "./events";
+import { needsAttention, scopeToMerchant, type EventRow } from "./events";
 
 export interface MerchantPlan {
   planId: string;
@@ -35,28 +35,13 @@ export interface MerchantSub {
 
 const SUB_STATE: SubStatus[] = ["active", "cancelled", "expired"];
 
-/** planIds from plan.created events whose payload.merchant matches `address` (case-insensitive). */
-function planIdsFor(events: EventRow[], address: string): string[] {
-  const target = address.toLowerCase();
-  const ids = new Set<string>();
-  for (const e of events) {
-    if (e.type !== "plan.created") continue;
-    if (e.payload.merchant?.toLowerCase() !== target) continue;
-    ids.add(e.payload.planId);
-  }
-  return [...ids].sort((a, b) => Number(a) - Number(b));
-}
-
-/** subIds from subscription.created events whose payload.planId is one of `planIds`. */
-function subIdsFor(events: EventRow[], planIds: string[]): string[] {
-  const known = new Set(planIds);
-  const ids = new Set<string>();
-  for (const e of events) {
-    if (e.type !== "subscription.created") continue;
-    if (!known.has(e.payload.planId)) continue;
-    ids.add(e.payload.subId);
-  }
-  return [...ids].sort((a, b) => Number(a) - Number(b));
+/** Sorted-ascending plan/sub ids owned by `address`, via `scopeToMerchant`'s event join. */
+function scopedIdsFor(events: EventRow[], address: string): { planIds: string[]; subIds: string[] } {
+  const { planIds, subIds } = scopeToMerchant(events, address);
+  return {
+    planIds: [...planIds].sort((a, b) => Number(a) - Number(b)),
+    subIds: [...subIds].sort((a, b) => Number(a) - Number(b)),
+  };
 }
 
 export function useMerchant(events: EventRow[]): {
@@ -68,7 +53,11 @@ export function useMerchant(events: EventRow[]): {
 } {
   const { address } = useAccount();
 
-  const planIds = useMemo(() => (address ? planIdsFor(events, address) : []), [events, address]);
+  const scoped = useMemo(
+    () => (address ? scopedIdsFor(events, address) : { planIds: [], subIds: [] }),
+    [events, address],
+  );
+  const planIds = scoped.planIds;
 
   const planContracts = useMemo(
     () =>
@@ -131,7 +120,7 @@ export function useMerchant(events: EventRow[]): {
     return out;
   }, [planIds, planData, versionData]);
 
-  const subIds = useMemo(() => subIdsFor(events, planIds), [events, planIds]);
+  const subIds = scoped.subIds;
 
   const subContracts = useMemo(
     () =>

@@ -8,7 +8,7 @@
 // ScrupleCard's allowlistCount={null} "restricted" badge) and the Activity
 // decline log (declines are enforced client-side by the payer SDK and are
 // never emitted as events) — see the Task 5 report for details.
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useAccount } from "wagmi";
 import { ConnectButton, type CardsScreen } from "@/components/chrome";
 import { Badge, Drawer, Panel, useToast } from "@/components/ui";
@@ -158,8 +158,14 @@ function CardDetail({ card, onClosed }: { card: MyCard; onClosed: () => void }) 
   const { freeze, unfreeze, cancel, pending } = useCardActions();
   const toast = useToast();
   const [status, setStatus] = useState<CardStatus>(card.status);
+  // Guards against double-fire (e.g. an eager double-click or double-tap
+  // before `pending` from useWriteContract has a chance to flip and disable
+  // the button) submitting two on-chain writes for one user action.
+  const inFlight = useRef(false);
 
   async function handleToggle() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     const wasActive = status === "active";
     setStatus(wasActive ? "frozen" : "active");
     try {
@@ -173,17 +179,23 @@ function CardDetail({ card, onClosed }: { card: MyCard; onClosed: () => void }) 
     } catch (err) {
       setStatus(wasActive ? "active" : "frozen");
       toast(err instanceof Error ? err.message : "Transaction failed.");
+    } finally {
+      inFlight.current = false;
     }
   }
 
   async function handleCancel() {
+    if (inFlight.current) return;
     if (!window.confirm("Cancel this card permanently? This cannot be undone.")) return;
+    inFlight.current = true;
     try {
       await cancel(card.cardId);
       toast("Card cancel submitted — appears after confirmation.");
       onClosed();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Transaction failed.");
+    } finally {
+      inFlight.current = false;
     }
   }
 
