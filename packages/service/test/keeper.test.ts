@@ -67,6 +67,7 @@ describe("Keeper.runOnce", () => {
     const res = await keeper.runOnce();
     expect(res.charged).toEqual(["2"]);
     expect(res.failed).toEqual([{ subId: "1", error: "rpc down" }]);
+    expect(store.listRecentEvents({ type: "payment.attempt_failed" })).toHaveLength(0);
   });
 
   it("emits payment.attempt_failed once per (sub, period) on failed charges", async () => {
