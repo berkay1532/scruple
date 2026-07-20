@@ -168,6 +168,21 @@ export class Store {
     return res.changes > 0;
   }
 
+  listRecentEvents(opts?: { limit?: number; type?: string }): DomainEvent[] {
+    const limit = Math.min(Math.max(opts?.limit ?? 100, 1), 500);
+    const rows = (opts?.type
+      ? this.db.prepare("SELECT id, type, block_number, payload, at FROM events WHERE type = ? ORDER BY at DESC, id DESC LIMIT ?").all(opts.type, limit)
+      : this.db.prepare("SELECT id, type, block_number, payload, at FROM events ORDER BY at DESC, id DESC LIMIT ?").all(limit)
+    ) as Array<{ id: string; type: string; block_number: string | null; payload: string; at: number }>;
+    return rows.map((r) => ({
+      id: r.id,
+      type: r.type,
+      blockNumber: r.block_number === null ? null : BigInt(r.block_number),
+      payload: JSON.parse(r.payload),
+      at: r.at,
+    }));
+  }
+
   close(): void {
     this.db.close();
   }

@@ -79,4 +79,20 @@ describe("Store", () => {
     expect(store.markAtRiskEmitted("7", 555)).toBe(false);
     expect(store.markAtRiskEmitted("7", 999)).toBe(true);
   });
+
+  it("lists recent events newest-first with type filter and clamped limit", () => {
+    store.insertEvent({ id: "e1", type: "payment.succeeded", blockNumber: 1n, payload: { subId: "1" }, at: 100 });
+    store.insertEvent({ id: "e2", type: "card.created", blockNumber: null, payload: { cardId: "5" }, at: 200 });
+    store.insertEvent({ id: "e3", type: "payment.succeeded", blockNumber: 3n, payload: { subId: "2" }, at: 300 });
+
+    const all = store.listRecentEvents();
+    expect(all.map((e) => e.id)).toEqual(["e3", "e2", "e1"]);
+    expect(all[1].blockNumber).toBeNull();
+    expect(all[0].blockNumber).toBe(3n);
+    expect(all[0].payload).toEqual({ subId: "2" });
+
+    expect(store.listRecentEvents({ type: "payment.succeeded" }).map((e) => e.id)).toEqual(["e3", "e1"]);
+    expect(store.listRecentEvents({ limit: 1 }).map((e) => e.id)).toEqual(["e3"]);
+    expect(store.listRecentEvents({ limit: 9999 }).length).toBe(3); // clamp does not throw
+  });
 });
