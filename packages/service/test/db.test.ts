@@ -94,5 +94,14 @@ describe("Store", () => {
     expect(store.listRecentEvents({ type: "payment.succeeded" }).map((e) => e.id)).toEqual(["e3", "e1"]);
     expect(store.listRecentEvents({ limit: 1 }).map((e) => e.id)).toEqual(["e3"]);
     expect(store.listRecentEvents({ limit: 9999 }).length).toBe(3); // clamp does not throw
+    expect(store.listRecentEvents({ limit: Number.NaN }).length).toBe(3);
+    expect(store.listRecentEvents({ limit: 0 }).map((e) => e.id)).toEqual(["e3"]); // 0 clamps to 1
+    expect(store.listRecentEvents({ limit: 2.7 }).length).toBe(2);
+  });
+
+  it("round-trips block numbers above Number.MAX_SAFE_INTEGER without precision loss", () => {
+    const huge = 2n ** 60n + 12345n;
+    store.insertEvent({ id: "e1", type: "payment.succeeded", blockNumber: huge, payload: { subId: "1" }, at: 100 });
+    expect(store.listRecentEvents()[0].blockNumber).toBe(huge);
   });
 });
