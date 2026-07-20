@@ -14,12 +14,47 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+const MAX_BODY_BYTES = 64 * 1024;
+
+class BodyTooLargeError extends Error {
+  constructor() {
+    super("body too large");
+    this.name = "BodyTooLargeError";
+  }
+}
+
+function readBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (c) => { data += c; });
-    req.on("end", () => resolve(data));
-    req.on("error", reject);
+    const chunks: Buffer[] = [];
+    let total = 0;
+
+    const cleanup = () => {
+      req.removeListener("data", onData);
+      req.removeListener("end", onEnd);
+      req.removeListener("error", onError);
+    };
+    const onData = (c: Buffer) => {
+      total += c.length;
+      if (total > MAX_BODY_BYTES) {
+        cleanup();
+        req.destroy();
+        reject(new BodyTooLargeError());
+        return;
+      }
+      chunks.push(c);
+    };
+    const onEnd = () => {
+      cleanup();
+      resolve(Buffer.concat(chunks));
+    };
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+
+    req.on("data", onData);
+    req.on("end", onEnd);
+    req.on("error", onError);
   });
 }
 
@@ -32,35 +67,48 @@ export function createIngestServer(opts: { store: Store; secret: string; now?: (
       const url = new URL(req.url ?? "/", "http://localhost");
 
       if (req.method === "POST" && url.pathname === "/ingest") {
-        const body = await readBody(req);
+        let bodyBuf: Buffer;
+        try {
+          bodyBuf = await readBody(req);
+        } catch (err) {
+          if (err instanceof BodyTooLargeError) {
+            return json(res, 413, { error: "body too large" });
+          }
+          throw err;
+        }
+        const body = bodyBuf.toString("utf8");
         const sig = req.headers["scruple-signature"];
         if (typeof sig !== "string" || !safeEqual(sig, `sha256=${signBody(secret, body)}`)) {
           return json(res, 401, { error: "bad signature" });
         }
-        let p: Record<string, unknown>;
+        let p: unknown;
         try {
           p = JSON.parse(body);
         } catch {
           return json(res, 400, { error: "bad payload" });
         }
+        if (p === null || typeof p !== "object" || Array.isArray(p)) {
+          return json(res, 400, { error: "bad payload" });
+        }
+        const payload = p as Record<string, unknown>;
         if (
-          typeof p.id !== "string" || typeof p.endpoint !== "string" || typeof p.price !== "string" ||
-          typeof p.at !== "number" || typeof p.atomic !== "string" || !/^\d+$/.test(p.atomic)
+          typeof payload.id !== "string" || typeof payload.endpoint !== "string" || typeof payload.price !== "string" ||
+          !Number.isFinite(payload.at) || typeof payload.atomic !== "string" || !/^\d+$/.test(payload.atomic)
         ) {
           return json(res, 400, { error: "bad payload" });
         }
         const inserted = store.insertEvent({
-          id: `metered:${p.id}`,
+          id: `metered:${payload.id}`,
           type: "settlement.batched",
           blockNumber: null,
           payload: {
-            endpoint: p.endpoint,
-            payer: typeof p.payer === "string" ? p.payer : "",
-            atomic: p.atomic,
-            price: p.price,
-            transaction: typeof p.transaction === "string" ? p.transaction : "",
+            endpoint: payload.endpoint,
+            payer: typeof payload.payer === "string" ? payload.payer : "",
+            atomic: payload.atomic,
+            price: payload.price,
+            transaction: typeof payload.transaction === "string" ? payload.transaction : "",
           },
-          at: p.at,
+          at: payload.at as number,
         });
         return json(res, 200, { ok: true, inserted });
       }
