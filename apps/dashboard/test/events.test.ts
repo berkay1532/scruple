@@ -6,6 +6,7 @@ import {
   needsAttention,
   revenueByDay,
 } from "../lib/events";
+import { timeAgo } from "../lib/format";
 
 function ev(partial: Partial<EventRow> & Pick<EventRow, "type" | "payload" | "at">): EventRow {
   return { id: "1", blockNumber: null, ...partial };
@@ -68,6 +69,83 @@ describe("feedDesc", () => {
       at: 0,
     });
     expect(feedDesc(e)).toBe("GET /api/quote · $0.001 by 0x84a1…c2f0");
+  });
+
+  it("describes a subscription.at_risk event", () => {
+    const e = ev({
+      type: "subscription.at_risk",
+      payload: { subId: "17", reason: "insufficient_balance", nextChargeAt: "1753", amount: "29000000" },
+      at: 0,
+    });
+    expect(feedDesc(e)).toBe("Sub #17 · insufficient balance");
+  });
+
+  it("describes a payment.overdue event", () => {
+    const e = ev({
+      type: "payment.overdue",
+      payload: { subId: "31", nextChargeAt: "1753" },
+      at: 0,
+    });
+    expect(feedDesc(e)).toBe("Sub #31 · payment overdue");
+  });
+
+  it("describes a payment.attempt_failed event", () => {
+    const e = ev({
+      type: "payment.attempt_failed",
+      payload: { subId: "31", error: "insufficient allowance", nextChargeAt: "1753" },
+      at: 0,
+    });
+    expect(feedDesc(e)).toBe("Sub #31 · insufficient allowance");
+  });
+
+  it("describes a card.created event", () => {
+    const e = ev({
+      type: "card.created",
+      payload: { cardId: "6", owner: "0xAbCdEf0123456789AbCdEf0123456789AbCdEf01", signer: "0x9876543210FedCbA9876543210FedCbA9876543210" },
+      at: 0,
+    });
+    expect(feedDesc(e)).toBe("Card #6 minted by 0xAbCd…Ef01");
+  });
+
+  it("describes a subscription.created event", () => {
+    const e = ev({
+      type: "subscription.created",
+      payload: { subId: "7", planId: "1", customer: "0x19bcAF1f1b03e3ecC6bA09F43Af53D8b5B3fea8b", cardId: "5" },
+      at: 0,
+    });
+    expect(feedDesc(e)).toBe("Plan #1 · new subscriber 0x19bc…ea8b");
+  });
+
+  it("falls back to type for unknown event types", () => {
+    const e = ev({
+      type: "plan.version_pushed",
+      payload: {},
+      at: 0,
+    });
+    expect(feedDesc(e)).toBe("plan.version_pushed");
+  });
+});
+
+describe("timeAgo", () => {
+  it("shows just now for diffs less than 60 seconds", () => {
+    const now = 100_000;
+    expect(timeAgo(now - 30_000, now)).toBe("just now");
+  });
+
+  it("shows minutes for diffs >= 60s and < 60m", () => {
+    const now = 100_000;
+    expect(timeAgo(now - 180_000, now)).toBe("3m ago");
+  });
+
+  it("shows hours for diffs >= 60m and < 24h", () => {
+    const now = 100_000;
+    expect(timeAgo(now - 7_200_000, now)).toBe("2h ago");
+  });
+
+  it("shows date for diffs >= 24h", () => {
+    const now = Date.UTC(2026, 6, 20, 12, 0, 0);
+    const twoDaysAgo = now - 2 * 24 * 60 * 60_000;
+    expect(timeAgo(twoDaysAgo, now)).toBe("Jul 18");
   });
 });
 
@@ -173,5 +251,30 @@ describe("needsAttention", () => {
       ev({ type: "payment.succeeded", payload: { subId: "1", version: "1", amount: "1", fee: "0" }, at: 1000 }),
     ];
     expect(needsAttention(events)).toEqual([]);
+  });
+
+  it("keeps at_risk when it is newer than overdue for the same sub", () => {
+    const now = Date.UTC(2026, 6, 20, 12, 0, 0);
+
+    const events: EventRow[] = [
+      // sub 5: overdue first, then at_risk — at_risk should win
+      ev({
+        type: "payment.overdue",
+        payload: { subId: "5", nextChargeAt: "1" },
+        at: now - 5000,
+      }),
+      ev({
+        type: "subscription.at_risk",
+        payload: { subId: "5", reason: "insufficient_balance", nextChargeAt: "1", amount: "1" },
+        at: now - 1000,
+      }),
+    ];
+
+    const rows = needsAttention(events);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe("subscription.at_risk");
+    expect(rows[0].tone).toBe("warn");
+    expect(rows[0].why).toBe("Balance below renewal amount");
   });
 });
