@@ -193,3 +193,22 @@ tbody tr:last-child td{border-bottom:none}
 .toast.show{transform:translateX(-50%) translateY(0)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 html,body{height:auto}
+
+/* ================================================================ */
+/* Post-mock addition (final review, M3): native form control styling.  */
+/* docs/design/dashboard-mock.html never styled <input>/<select>/       */
+/* <textarea> — unstyled controls render with the OS light-mode chrome  */
+/* even in dark mode. `color-scheme` fixes native UI (date pickers,     */
+/* scrollbars); the rest reuses existing tokens, kept minimal.          */
+/* ================================================================ */
+:root{color-scheme:light dark}
+:root[data-theme="dark"]{color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
+
+input,select,textarea{
+  font:inherit;color:var(--ink);background:var(--surface2);
+  border:1px solid var(--line);border-radius:7px;padding:7px 10px;
+}
+input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid var(--brass);outline-offset:2px;
+}

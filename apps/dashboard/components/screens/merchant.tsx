@@ -17,6 +17,7 @@ import {
   feedTone,
   needsAttention,
   revenueByDay,
+  revenueTotalAtomic,
   scopedFeedEvents,
   scopedPaymentEvents,
   scopeToMerchant,
@@ -60,7 +61,12 @@ function Overview({ events }: { events: EventRow[] }) {
   const myPaymentEvents = useMemo(() => scopedPaymentEvents(events, mySubIds), [events, mySubIds]);
 
   const daily = useMemo(() => revenueByDay(myPaymentEvents, 30, nowMs), [myPaymentEvents, nowMs]);
-  const revenueThisMonth = daily.reduce((a, b) => a + b, 0);
+  // Headline revenue is exact money — sum atomic bigints, not the chart's
+  // float-bucketed `daily` vector (display-only, see lib/events.ts).
+  const revenueThisMonth = useMemo(
+    () => revenueTotalAtomic(myPaymentEvents, nowMs - 30 * DAY_MS, nowMs),
+    [myPaymentEvents, nowMs],
+  );
 
   const activeSubCount = subs.filter((s) => s.status !== "cancelled" && s.status !== "expired").length;
 
@@ -113,7 +119,7 @@ function Overview({ events }: { events: EventRow[] }) {
       <div className="grid cols-3">
         <Panel className="stat">
           <div className="k">Revenue · this month</div>
-          <div className="v serif">${revenueThisMonth.toFixed(2)}</div>
+          <div className="v serif">{formatUsd(revenueThisMonth)}</div>
           <div className="d">Last 30 days</div>
         </Panel>
         <Panel className="stat">
@@ -189,6 +195,7 @@ function NewPlanForm({
   onDone: () => void;
 }) {
   const toast = useToast();
+  const { isConnected } = useAccount();
   const [amount, setAmount] = useState("");
   const [periodDays, setPeriodDays] = useState("30");
   const [trialDays, setTrialDays] = useState("0");
@@ -197,6 +204,8 @@ function NewPlanForm({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!isConnected) return;
 
     const amountAtomic = parseUsdToAtomic(amount);
     if (amountAtomic === null || amountAtomic <= 0n) {
@@ -239,7 +248,8 @@ function NewPlanForm({
         <input value={trialDays} onChange={(e) => setTrialDays(e.target.value)} inputMode="numeric" />
       </label>
       {error && <p className="empty-note" style={{ color: "var(--bad)" }}>{error}</p>}
-      <button type="submit" className="btn primary" disabled={pending}>
+      {!isConnected && <p className="empty-note">Connect a wallet first</p>}
+      <button type="submit" className="btn primary" disabled={pending || !isConnected}>
         {pending ? "Confirm in wallet…" : "Create plan"}
       </button>
     </form>

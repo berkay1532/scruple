@@ -23,6 +23,12 @@ export async function GET() {
     return NextResponse.json({ error: "upstream request failed" }, { status: 502 });
   }
 
-  const body = await upstream.json();
+  let body: unknown;
+  try {
+    body = await upstream.json();
+  } catch {
+    return NextResponse.json({ error: "bad upstream response" }, { status: 502 });
+  }
+
   return NextResponse.json(body, { status: upstream.status });
 }

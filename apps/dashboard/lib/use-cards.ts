@@ -48,7 +48,7 @@ export function useMyCards(events: EventRow[]): { cards: MyCard[]; isLoading: bo
 
   const { data, isLoading } = useReadContracts({
     contracts,
-    query: { enabled: contracts.length > 0 },
+    query: { enabled: contracts.length > 0, refetchInterval: 5000 },
   });
 
   const cards = useMemo<MyCard[]>(() => {

@@ -44,7 +44,7 @@ function expiryLabel(expiryS: number): string {
 /* ================================================================ */
 
 function MintCardForm({ onDone }: { onDone: () => void }) {
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
   const { mint, pending } = useCardActions();
   const toast = useToast();
 
@@ -59,6 +59,8 @@ function MintCardForm({ onDone }: { onDone: () => void }) {
     e.preventDefault();
     setError(null);
 
+    if (!isConnected) return;
+
     const limitAtomic = parseUsdToAtomic(limit);
     if (limitAtomic === null || limitAtomic <= 0n) {
       setError("Enter a period limit greater than $0.00.");
@@ -67,14 +69,17 @@ function MintCardForm({ onDone }: { onDone: () => void }) {
 
     let expiryS = 0;
     if (expiry.trim()) {
-      const ms = new Date(`${expiry}T00:00:00Z`).getTime();
+      // End-of-day UTC (23:59:59) rather than midnight — a merchant picking
+      // "today" as the expiry means the card should still work through the
+      // rest of today, not expire the instant the date rolls over.
+      const ms = new Date(`${expiry}T23:59:59Z`).getTime();
       if (Number.isNaN(ms)) {
         setError("Expiry date is invalid.");
         return;
       }
       expiryS = Math.floor(ms / 1000);
       if (expiryS <= Date.now() / 1000) {
-        setError("Expiry must be in the future.");
+        setError("Expiry must be today or later.");
         return;
       }
     }
@@ -143,7 +148,8 @@ function MintCardForm({ onDone }: { onDone: () => void }) {
         <input value={signer} onChange={(e) => setSigner(e.target.value)} className="mono" />
       </label>
       {error && <p className="empty-note" style={{ color: "var(--bad)" }}>{error}</p>}
-      <button type="submit" className="btn primary" disabled={pending}>
+      {!isConnected && <p className="empty-note">Connect a wallet first</p>}
+      <button type="submit" className="btn primary" disabled={pending || !isConnected}>
         {pending ? "Confirm in wallet…" : "Mint card"}
       </button>
     </form>
@@ -171,10 +177,10 @@ function CardDetail({ card, onClosed }: { card: MyCard; onClosed: () => void }) 
     try {
       if (wasActive) {
         await freeze(card.cardId);
-        toast("Card frozen — all charges will decline");
+        toast("Freeze submitted — charges will decline once confirmed");
       } else {
         await unfreeze(card.cardId);
-        toast("Card active again");
+        toast("Unfreeze submitted — charges will resume once confirmed");
       }
     } catch (err) {
       setStatus(wasActive ? "active" : "frozen");

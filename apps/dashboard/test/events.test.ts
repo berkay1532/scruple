@@ -5,6 +5,7 @@ import {
   feedTone,
   needsAttention,
   revenueByDay,
+  revenueTotalAtomic,
   scopedFeedEvents,
   scopedPaymentEvents,
   scopeToMerchant,
@@ -127,6 +128,12 @@ describe("feedDesc", () => {
     });
     expect(feedDesc(e)).toBe("plan.version_pushed");
   });
+
+  it("does not throw on a malformed/empty payload for a known type", () => {
+    const e = ev({ type: "payment.succeeded", payload: {}, at: 0 });
+    expect(() => feedDesc(e)).not.toThrow();
+    expect(feedDesc(e)).toBe("Sub #? · $0.00 charged, $0.00 fee");
+  });
 });
 
 describe("timeAgo", () => {
@@ -190,6 +197,45 @@ describe("revenueByDay", () => {
       ev({ type: "card.created", payload: { cardId: "1", owner: "0x1", signer: "0x1" }, at: now }),
     ];
     expect(revenueByDay(events, 1, now)).toEqual([0]);
+  });
+});
+
+describe("revenueTotalAtomic", () => {
+  it("sums payment.succeeded + settlement.batched as an exact bigint within [sinceMs, nowMs]", () => {
+    const DAY = 24 * 60 * 60_000;
+    const now = Date.UTC(2026, 6, 20, 12, 0, 0);
+    const events: EventRow[] = [
+      ev({ type: "payment.succeeded", payload: { subId: "1", version: "1", amount: "5000000", fee: "50000" }, at: now - DAY }),
+      ev({
+        type: "settlement.batched",
+        payload: { endpoint: "/api/quote", payer: "0x1", atomic: "1500000", price: "$1.50", transaction: "0x1" },
+        at: now,
+      }),
+      // outside the window — must not be counted
+      ev({ type: "payment.succeeded", payload: { subId: "2", version: "1", amount: "9000000", fee: "90000" }, at: now - 31 * DAY }),
+    ];
+
+    expect(revenueTotalAtomic(events, now - 30 * DAY, now)).toBe(6_500_000n);
+  });
+
+  it("sums sub-cent atomic amounts exactly, with no float rounding error", () => {
+    const now = 100_000;
+    const events: EventRow[] = [
+      ev({
+        type: "settlement.batched",
+        payload: { endpoint: "/api/quote", payer: "0x1", atomic: "1", price: "$0", transaction: "0x1" },
+        at: now,
+      }),
+      ev({
+        type: "settlement.batched",
+        payload: { endpoint: "/api/quote", payer: "0x1", atomic: "2", price: "$0", transaction: "0x2" },
+        at: now,
+      }),
+    ];
+
+    // 1 + 2 atomic units (millionths of a cent-scale precision) — a float
+    // sum of (1/1e6 + 2/1e6) is prone to representation error; bigint isn't.
+    expect(revenueTotalAtomic(events, 0, now)).toBe(3n);
   });
 });
 

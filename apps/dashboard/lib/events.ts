@@ -35,24 +35,29 @@ const AT_RISK_REASON_COPY: Record<string, string> = {
   card_policy_blocks: "Card policy will decline next charge",
 };
 
-/** Human-readable one-line description of an event, per its taxonomy type. */
+/**
+ * Human-readable one-line description of an event, per its taxonomy type.
+ * Field access is defensively defaulted (`?? "0"` / `?? ""` / `?? "?"`) so a
+ * malformed or partial payload (e.g. a service/schema mismatch) renders a
+ * degraded-but-safe row instead of throwing and taking down the whole feed.
+ */
 export function feedDesc(e: EventRow): string {
-  const p = e.payload;
+  const p = e.payload ?? {};
   switch (e.type) {
     case "payment.succeeded":
-      return `Sub #${p.subId} · ${usd2(p.amount)} charged, ${usd2(p.fee)} fee`;
+      return `Sub #${p.subId ?? "?"} · ${usd2(p.amount ?? "0")} charged, ${usd2(p.fee ?? "0")} fee`;
     case "settlement.batched":
-      return `${p.endpoint} · ${formatUsd(p.atomic)} by ${shortAddr(p.payer)}`;
+      return `${p.endpoint ?? "?"} · ${formatUsd(p.atomic ?? "0")} by ${shortAddr(p.payer ?? "")}`;
     case "subscription.at_risk":
-      return `Sub #${p.subId} · ${p.reason.replace(/_/g, " ")}`;
+      return `Sub #${p.subId ?? "?"} · ${(p.reason ?? "").replace(/_/g, " ")}`;
     case "payment.overdue":
-      return `Sub #${p.subId} · payment overdue`;
+      return `Sub #${p.subId ?? "?"} · payment overdue`;
     case "payment.attempt_failed":
-      return `Sub #${p.subId} · ${p.error}`;
+      return `Sub #${p.subId ?? "?"} · ${p.error ?? "unknown error"}`;
     case "card.created":
-      return `Card #${p.cardId} minted by ${shortAddr(p.owner)}`;
+      return `Card #${p.cardId ?? "?"} minted by ${shortAddr(p.owner ?? "")}`;
     case "subscription.created":
-      return `Plan #${p.planId} · new subscriber ${shortAddr(p.customer)}`;
+      return `Plan #${p.planId ?? "?"} · new subscriber ${shortAddr(p.customer ?? "")}`;
     default:
       return e.type;
   }
@@ -81,6 +86,28 @@ export function revenueByDay(events: EventRow[], days: number, nowMs: number): n
   }
 
   return out;
+}
+
+/**
+ * Exact headline revenue as an atomic (6-decimal) bigint — no float
+ * intermediate — summing `payment.succeeded` (`payload.amount`) and
+ * `settlement.batched` (`payload.atomic`) for events with
+ * `sinceMs <= at <= nowMs`. Use this (via `formatUsd`) for any dollar figure
+ * presented as authoritative accounting (e.g. the Overview headline); use
+ * `revenueByDay` only for the chart, where float precision is acceptable
+ * because it's display-only.
+ */
+export function revenueTotalAtomic(events: EventRow[], sinceMs: number, nowMs: number): bigint {
+  let total = 0n;
+  for (const e of events) {
+    if (e.at < sinceMs || e.at > nowMs) continue;
+    let atomic: string | undefined;
+    if (e.type === "payment.succeeded") atomic = e.payload.amount;
+    else if (e.type === "settlement.batched") atomic = e.payload.atomic;
+    if (atomic === undefined) continue;
+    total += BigInt(atomic);
+  }
+  return total;
 }
 
 /**
@@ -173,13 +200,15 @@ export interface AttentionRow {
 
 /**
  * At most one row per subId, taken from that sub's most recent
- * subscription.at_risk / payment.overdue event, newest first.
+ * subscription.at_risk / payment.overdue event, newest first. Field access
+ * is defensively defaulted so a malformed payload (e.g. a missing subId)
+ * degrades to a "?" row instead of throwing.
  */
 export function needsAttention(events: EventRow[]): AttentionRow[] {
   const latestBySub = new Map<string, EventRow>();
   for (const e of events) {
     if (e.type !== "subscription.at_risk" && e.type !== "payment.overdue") continue;
-    const subId = e.payload.subId;
+    const subId = e.payload?.subId ?? "?";
     const existing = latestBySub.get(subId);
     if (!existing || e.at > existing.at) latestBySub.set(subId, e);
   }
@@ -187,21 +216,24 @@ export function needsAttention(events: EventRow[]): AttentionRow[] {
   return [...latestBySub.values()]
     .sort((a, b) => b.at - a.at)
     .map((e): AttentionRow => {
+      const p = e.payload ?? {};
+      const subId = p.subId ?? "?";
       if (e.type === "subscription.at_risk") {
+        const reason = p.reason ?? "";
         return {
           tone: "warn",
           kind: e.type,
-          title: `Sub #${e.payload.subId}`,
-          why: AT_RISK_REASON_COPY[e.payload.reason] ?? e.payload.reason,
-          subId: e.payload.subId,
+          title: `Sub #${subId}`,
+          why: AT_RISK_REASON_COPY[reason] ?? reason,
+          subId,
         };
       }
       return {
         tone: "bad",
         kind: e.type,
-        title: `Sub #${e.payload.subId}`,
+        title: `Sub #${subId}`,
         why: "Payment overdue",
-        subId: e.payload.subId,
+        subId,
       };
     });
 }
