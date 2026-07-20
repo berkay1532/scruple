@@ -4,3 +4,4 @@ export * from "./indexer";
 export * from "./webhooks";
 export * from "./atrisk";
 export * from "./keeper";
+export * from "./ingest";
