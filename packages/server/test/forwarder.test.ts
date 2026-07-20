@@ -35,4 +35,17 @@ describe("createServiceForwarder", () => {
     expect(spy).toHaveBeenCalledTimes(2);
     spy.mockRestore();
   });
+
+  it("times out hanging services without throwing", async () => {
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+    );
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const forward = createServiceForwarder({ url: "http://svc/ingest", secret: "k", fetchImpl: fetchImpl as unknown as typeof fetch, timeoutMs: 20 });
+    await expect(forward(EVENT)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
 });

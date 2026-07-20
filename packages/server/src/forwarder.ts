@@ -11,8 +11,10 @@ export function createServiceForwarder(opts: {
   url: string;
   secret: string;
   fetchImpl?: typeof fetch;
+  timeoutMs?: number;
 }): (e: PaymentEvent) => Promise<void> {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
+  const timeoutMs = opts.timeoutMs ?? 10_000;
   return async (e: PaymentEvent) => {
     const body = JSON.stringify({ ...e, atomic: e.atomic.toString() });
     const signature = createHmac("sha256", opts.secret).update(body).digest("hex");
@@ -21,6 +23,8 @@ export function createServiceForwarder(opts: {
         method: "POST",
         headers: { "content-type": "application/json", "scruple-signature": `sha256=${signature}` },
         body,
+        // A hang is treated exactly like a failure: the abort rejects the fetch, which the catch below routes to logging.
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (res.status < 200 || res.status >= 300) {
         console.error("[scruple] service forward failed:", res.status);
