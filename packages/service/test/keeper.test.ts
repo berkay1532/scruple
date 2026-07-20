@@ -68,4 +68,40 @@ describe("Keeper.runOnce", () => {
     expect(res.charged).toEqual(["2"]);
     expect(res.failed).toEqual([{ subId: "1", error: "rpc down" }]);
   });
+
+  it("emits payment.attempt_failed once per (sub, period) on failed charges", async () => {
+    const store = new Store(":memory:");
+    store.trackSub("1");
+    const charge = vi.fn(async () => { throw new Error("insufficient allowance"); });
+    const keeper = new Keeper({ store, reader: reader({}), sender: { charge }, now: () => NOW_MS });
+    await keeper.runOnce();
+    await keeper.runOnce(); // second failure, same period
+    const events = store.listRecentEvents({ type: "payment.attempt_failed" });
+    expect(events).toHaveLength(1);
+    expect(events[0].id).toBe(`attemptfail:1:${NOW_S - 10}`);
+    expect(events[0].payload).toEqual({ subId: "1", error: "insufficient allowance", nextChargeAt: String(NOW_S - 10) });
+  });
+
+  it("escalates to payment.overdue when still failing past overdueAfterS", async () => {
+    const store = new Store(":memory:");
+    store.trackSub("1");
+    const charge = vi.fn(async () => { throw new Error("still broken"); });
+    const dueAt = NOW_S - 2 * 86_400; // due 2 days ago
+    const keeper = new Keeper({
+      store, reader: reader({ "1": { nextChargeAt: dueAt } }), sender: { charge },
+      now: () => NOW_MS, overdueAfterS: 86_400,
+    });
+    await keeper.runOnce();
+    await keeper.runOnce();
+    expect(store.listRecentEvents({ type: "payment.overdue" })).toHaveLength(1);
+    expect(store.listRecentEvents({ type: "payment.attempt_failed" })).toHaveLength(1);
+  });
+
+  it("emits nothing on successful charges", async () => {
+    const store = new Store(":memory:");
+    store.trackSub("1");
+    const keeper = new Keeper({ store, reader: reader({}), sender: { charge: async () => ({ txHash: "0x1" }) }, now: () => NOW_MS });
+    await keeper.runOnce();
+    expect(store.listRecentEvents()).toHaveLength(0);
+  });
 });

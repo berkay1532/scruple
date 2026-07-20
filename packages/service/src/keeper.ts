@@ -1,5 +1,5 @@
 import type { Store } from "./db";
-import type { SubReader } from "./atrisk";
+import type { SubReader, UpcomingCharge } from "./atrisk";
 
 export interface ChargeSender {
   charge(subId: string): Promise<{ txHash: string }>;
@@ -15,12 +15,14 @@ export class Keeper {
   private readonly reader: SubReader;
   private readonly sender: ChargeSender;
   private readonly now: () => number;
+  private readonly overdueAfterS: number;
 
-  constructor(opts: { store: Store; reader: SubReader; sender: ChargeSender; now?: () => number }) {
+  constructor(opts: { store: Store; reader: SubReader; sender: ChargeSender; now?: () => number; overdueAfterS?: number }) {
     this.store = opts.store;
     this.reader = opts.reader;
     this.sender = opts.sender;
     this.now = opts.now ?? (() => Date.now());
+    this.overdueAfterS = opts.overdueAfterS ?? 86_400;
   }
 
   async runOnce(): Promise<{ charged: string[]; failed: Array<{ subId: string; error: string }> }> {
@@ -28,8 +30,9 @@ export class Keeper {
     const charged: string[] = [];
     const failed: Array<{ subId: string; error: string }> = [];
     for (const subId of this.store.listActiveSubs()) {
+      let s: UpcomingCharge | undefined;
       try {
-        const s = await this.reader.getUpcomingCharge(subId);
+        s = await this.reader.getUpcomingCharge(subId);
         if (!s.active) {
           this.store.deactivateSub(subId);
           continue;
@@ -38,7 +41,26 @@ export class Keeper {
         await this.sender.charge(subId);
         charged.push(subId);
       } catch (err) {
-        failed.push({ subId, error: err instanceof Error ? err.message : String(err) });
+        const message = err instanceof Error ? err.message : String(err);
+        failed.push({ subId, error: message });
+        if (s !== undefined) {
+          this.store.insertEvent({
+            id: `attemptfail:${subId}:${s.nextChargeAt}`,
+            type: "payment.attempt_failed",
+            blockNumber: null,
+            payload: { subId, error: message, nextChargeAt: String(s.nextChargeAt) },
+            at: this.now(),
+          });
+          if (nowS > s.nextChargeAt + this.overdueAfterS) {
+            this.store.insertEvent({
+              id: `overdue:${subId}:${s.nextChargeAt}`,
+              type: "payment.overdue",
+              blockNumber: null,
+              payload: { subId, nextChargeAt: String(s.nextChargeAt) },
+              at: this.now(),
+            });
+          }
+        }
       }
     }
     return { charged, failed };
