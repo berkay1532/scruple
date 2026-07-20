@@ -1,0 +1,22 @@
+{
+  "name": "scruple-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": { "dev": "next dev", "build": "next build", "start": "next start", "test": "vitest run" },
+  "dependencies": {
+    "@tanstack/react-query": "^5.60.0",
+    "next": "^16.1.6",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "viem": "^2.47.1",
+    "wagmi": "^3.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^25.4.0",
+    "@types/react": "^19.0.0",
+    "jsdom": "^25.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}
