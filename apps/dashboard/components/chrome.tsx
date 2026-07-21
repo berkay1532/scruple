@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { useAccount, useConnect, useConnectors, useDisconnect } from "wagmi";
+import { useAccount, useConnect, useConnections, useConnectors, useDisconnect } from "wagmi";
 import { useToast } from "./ui";
 
 export type View = "merchant" | "cards";
@@ -33,8 +33,9 @@ function AddressPill() {
 
 /** Injected-connector connect/disconnect toggle. MVP has no wallet picker — one connector. */
 export function ConnectButton() {
-  const { isConnected } = useAccount();
+  const { isConnected, connector: activeConnector } = useAccount();
   const connectors = useConnectors();
+  const connections = useConnections();
   const { connect, isPending, error } = useConnect();
   const { disconnect } = useDisconnect();
   const toast = useToast();
@@ -47,11 +48,28 @@ export function ConnectButton() {
     if (error) toast(error.message || "Connection failed.");
   }, [error, toast]);
 
+  async function switchAccount() {
+    const connector = activeConnector ?? connections[0]?.connector;
+    try {
+      const provider = (await connector?.getProvider?.()) as
+        | { request?: (a: { method: string; params?: unknown[] }) => Promise<unknown> }
+        | undefined;
+      await provider?.request?.({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+    } catch {
+      toast("Account switch cancelled or unsupported — switch accounts in your wallet extension instead.");
+    }
+  }
+
   if (isConnected) {
     return (
-      <button className="btn small" onClick={() => disconnect()}>
-        Disconnect
-      </button>
+      <>
+        <button className="btn small" onClick={() => disconnect()}>
+          Disconnect
+        </button>
+        <button className="btn small" onClick={() => void switchAccount()}>
+          Switch
+        </button>
+      </>
     );
   }
 
