@@ -4,13 +4,26 @@
 // the browser talks to this same-origin endpoint instead and never sees
 // ARC_RPC_URL (which may embed an auth token). Never statically optimized —
 // every chain read is a fresh JSON-RPC round trip.
+//
+// Parallel page-load reads land on the public RPC as a burst, which trips
+// its rate limit (`{code:-32011,"request limit reached"}`) and renders
+// tables empty. A single module-level forwarder serializes every request
+// through one queue with a minimum gap between upstream calls, and retries
+// rate-limited responses with backoff — see lib/rpc-forwarder.ts.
 import { NextResponse } from "next/server";
+import { createRpcForwarder } from "../../../lib/rpc-forwarder";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
-  const rpcUrl = process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
+const rpcUrl = process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
 
+// Module-level singleton: every request in this server process shares one
+// queue, so the min-gap spacing applies across concurrent requests, not
+// just within a single one. Never log or echo `rpcUrl` — it may embed an
+// auth token.
+const forwarder = createRpcForwarder({ upstream: rpcUrl });
+
+export async function POST(request: Request) {
   let body: unknown;
   try {
     body = await request.json();
@@ -18,24 +31,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid json body" }, { status: 400 });
   }
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    // Don't log or echo `rpcUrl` — it may embed an auth token.
-    return NextResponse.json({ error: "rpc upstream unavailable" }, { status: 502 });
-  }
+  const { status, body: responseBody } = await forwarder.forward(JSON.stringify(body));
 
-  let payload: unknown;
-  try {
-    payload = await upstream.json();
-  } catch {
-    return NextResponse.json({ error: "rpc upstream unavailable" }, { status: 502 });
-  }
-
-  return NextResponse.json(payload, { status: upstream.status });
+  return new NextResponse(responseBody, {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
