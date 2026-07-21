@@ -10,6 +10,7 @@ import { CARD_ISSUER_ABI } from "./abi";
 import { ADDRESSES, arcTestnet } from "./chain";
 import { deriveMyCards } from "./cards";
 import type { EventRow } from "./events";
+import { useLastNonEmpty } from "./use-last-non-empty";
 
 export type CardStatus = "active" | "frozen" | "cancelled";
 
@@ -49,7 +50,7 @@ export function useMyCards(events: EventRow[]): { cards: MyCard[]; isLoading: bo
   const { data, isLoading } = useReadContracts({
     contracts,
     chainId: arcTestnet.id,
-    query: { enabled: contracts.length > 0, refetchInterval: 5000 },
+    query: { enabled: contracts.length > 0, refetchInterval: 15000, retry: 2 },
   });
 
   const cards = useMemo<MyCard[]>(() => {
@@ -72,8 +73,12 @@ export function useMyCards(events: EventRow[]): { cards: MyCard[]; isLoading: bo
       ];
     });
   }, [data, cardIds]);
+  // Retain the last non-empty result across rate-limited polls (see
+  // use-last-non-empty.ts) so a single failed multicall can't blank
+  // already-rendered cards.
+  const stableCards = useLastNonEmpty(cards);
 
-  return { cards, isLoading: contracts.length > 0 && isLoading };
+  return { cards: stableCards, isLoading: contracts.length > 0 && isLoading };
 }
 
 export interface MintCardOptions {

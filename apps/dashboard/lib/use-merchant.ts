@@ -11,6 +11,7 @@ import { useAccount, useReadContracts, useWriteContract } from "wagmi";
 import { SUBSCRIPTION_MANAGER_ABI } from "./abi";
 import { ADDRESSES, arcTestnet } from "./chain";
 import { needsAttention, scopeToMerchant, type EventRow } from "./events";
+import { useLastNonEmpty } from "./use-last-non-empty";
 
 export interface MerchantPlan {
   planId: string;
@@ -75,7 +76,7 @@ export function useMerchant(events: EventRow[]): {
   const { data: planData, isLoading: plansLoading } = useReadContracts({
     contracts: planContracts,
     chainId: arcTestnet.id,
-    query: { enabled: planContracts.length > 0, refetchInterval: 5000 },
+    query: { enabled: planContracts.length > 0, refetchInterval: 15000, retry: 2 },
   });
 
   const versionContracts = useMemo(() => {
@@ -96,7 +97,7 @@ export function useMerchant(events: EventRow[]): {
   const { data: versionData, isLoading: versionsLoading } = useReadContracts({
     contracts: versionContracts,
     chainId: arcTestnet.id,
-    query: { enabled: versionContracts.length > 0, refetchInterval: 5000 },
+    query: { enabled: versionContracts.length > 0, refetchInterval: 15000, retry: 2 },
   });
 
   const plans = useMemo<MerchantPlan[]>(() => {
@@ -121,6 +122,10 @@ export function useMerchant(events: EventRow[]): {
     }
     return out;
   }, [planIds, planData, versionData]);
+  // Retain the last non-empty result across rate-limited polls (see
+  // use-last-non-empty.ts) so a single failed multicall can't blank
+  // already-rendered plans.
+  const stablePlans = useLastNonEmpty(plans);
 
   const subIds = scoped.subIds;
 
@@ -140,7 +145,7 @@ export function useMerchant(events: EventRow[]): {
   const { data: subData, isLoading: subsLoading } = useReadContracts({
     contracts: subContracts,
     chainId: arcTestnet.id,
-    query: { enabled: subContracts.length > 0, refetchInterval: 5000 },
+    query: { enabled: subContracts.length > 0, refetchInterval: 15000, retry: 2 },
   });
 
   const attentionBySub = useMemo(() => {
@@ -173,6 +178,8 @@ export function useMerchant(events: EventRow[]): {
       ];
     });
   }, [subData, subIds, attentionBySub]);
+  // Same last-good retention as stablePlans above.
+  const stableSubs = useLastNonEmpty(subs);
 
   const { writeContractAsync, isPending } = useWriteContract();
 
@@ -187,8 +194,8 @@ export function useMerchant(events: EventRow[]): {
   }
 
   return {
-    plans,
-    subs,
+    plans: stablePlans,
+    subs: stableSubs,
     isLoading: plansLoading || versionsLoading || subsLoading,
     pending: isPending,
     createPlan,
