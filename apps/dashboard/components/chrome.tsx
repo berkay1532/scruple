@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { useAccount, useConnect, useConnections, useConnectors, useDisconnect } from "wagmi";
+import { useAccount, useChainId, useConnect, useConnections, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
+import { arcTestnet } from "../lib/chain";
 import { useToast } from "./ui";
 
 export type View = "merchant" | "cards";
@@ -82,6 +83,34 @@ export function ConnectButton() {
     >
       {isPending ? "Connecting…" : "Connect"}
     </button>
+  );
+}
+
+/** Warns when the connected wallet's active chain isn't Arc testnet — reads follow the wallet's chain, so on the wrong network they silently come back empty. */
+function WrongNetworkPill() {
+  const { isConnected } = useAccount();
+  const chainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
+  const toast = useToast();
+
+  if (!isConnected || chainId === arcTestnet.id) return null;
+
+  async function handleSwitch() {
+    try {
+      await switchChainAsync({ chainId: arcTestnet.id });
+    } catch {
+      toast("Network switch rejected — switch to Arc Testnet in your wallet.");
+    }
+  }
+
+  return (
+    <span className="pill testnet">
+      <span className="b" />
+      Wrong network
+      <button className="btn small" onClick={() => void handleSwitch()}>
+        Switch to Arc
+      </button>
+    </span>
   );
 }
 
@@ -166,6 +195,7 @@ export function Chrome({
               <span className="b" />
               Arc Testnet
             </span>
+            <WrongNetworkPill />
             <AddressPill />
             <ConnectButton />
             <button className="theme-btn" onClick={toggleTheme}>

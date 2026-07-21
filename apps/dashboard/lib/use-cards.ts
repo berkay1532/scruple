@@ -48,6 +48,7 @@ export function useMyCards(events: EventRow[]): { cards: MyCard[]; isLoading: bo
 
   const { data, isLoading } = useReadContracts({
     contracts,
+    chainId: arcTestnet.id,
     query: { enabled: contracts.length > 0, refetchInterval: 5000 },
   });
 

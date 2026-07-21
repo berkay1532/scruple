@@ -74,6 +74,7 @@ export function useMerchant(events: EventRow[]): {
   );
   const { data: planData, isLoading: plansLoading } = useReadContracts({
     contracts: planContracts,
+    chainId: arcTestnet.id,
     query: { enabled: planContracts.length > 0, refetchInterval: 5000 },
   });
 
@@ -94,6 +95,7 @@ export function useMerchant(events: EventRow[]): {
   }, [planIds, planData]);
   const { data: versionData, isLoading: versionsLoading } = useReadContracts({
     contracts: versionContracts,
+    chainId: arcTestnet.id,
     query: { enabled: versionContracts.length > 0, refetchInterval: 5000 },
   });
 
@@ -137,6 +139,7 @@ export function useMerchant(events: EventRow[]): {
   );
   const { data: subData, isLoading: subsLoading } = useReadContracts({
     contracts: subContracts,
+    chainId: arcTestnet.id,
     query: { enabled: subContracts.length > 0, refetchInterval: 5000 },
   });
 
