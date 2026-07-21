@@ -122,7 +122,8 @@ SERVICE_URL=http://localhost:8787 SERVICE_EVENTS_SECRET=<INGEST_SECRET value> \
 |---|---|---|
 | `SERVICE_URL` | yes | Base URL of the `@scruple/service` instance backing this dashboard (its `GET /events` is proxied through `app/api/events`). |
 | `SERVICE_EVENTS_SECRET` | yes | Matches the service's `INGEST_SECRET` — sent as a bearer token to `GET /events`, server-side only. |
-| `NEXT_PUBLIC_RPC_URL` | no | Arc testnet RPC URL for chain reads/writes (defaults to `https://rpc.testnet.arc.network`). |
+| `ARC_RPC_URL` | no | Authenticated Arc RPC URL for chain reads, proxied server-side through `app/api/rpc` (defaults to `https://rpc.testnet.arc.network`) — any token in it never reaches the browser. |
+| `NEXT_PUBLIC_RPC_URL` | no | Browser-direct RPC override, requires a CORS-enabled endpoint (defaults to same-origin `/api/rpc`, which proxies to `ARC_RPC_URL`). |
 
 Honest-data note: a handful of the design mock's sections show data the live API doesn't
 expose yet (webhook delivery status, per-card allowlist address lists, declined-payment

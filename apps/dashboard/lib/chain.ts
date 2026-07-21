@@ -9,12 +9,19 @@ import { defineChain } from "viem";
 import { createConfig, http } from "wagmi";
 import { injected } from "wagmi/connectors";
 
+// Default reads go through the same-origin /api/rpc proxy (see
+// app/api/rpc/route.ts) so the browser never talks cross-origin to the
+// authenticated canteen RPC (CORS-blocked) or hammers the public RPC
+// (rate-limited). NEXT_PUBLIC_RPC_URL stays supported as an explicit
+// override for anyone pointing at their own CORS-enabled RPC.
+const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL ?? "/api/rpc";
+
 export const arcTestnet = defineChain({
   id: 5042002,
   name: "Arc Testnet",
   nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
   rpcUrls: {
-    default: { http: [process.env.NEXT_PUBLIC_RPC_URL ?? "https://rpc.testnet.arc.network"] },
+    default: { http: [rpcUrl] },
   },
 });
 
