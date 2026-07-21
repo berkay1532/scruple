@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scruple — Stripe-grade billing for the USDC economy</title>
+<style>
+  :root{
+    --bg:#0C0F14; --surface:#12161D; --line:#242B36;
+    --ink:#E8E6E1; --ink2:#9BA1AC; --ink3:#6A7180;
+    --brass:#C9A96A; --brass-soft:#C9A96A18;
+    --ok:#4CAF82; --warn:#D9A441; --bad:#D96C5F; --info:#6C9BD9;
+  }
+  *{box-sizing:border-box;margin:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--ink); overflow:hidden;
+    font:18px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+
+  .slide{
+    position:absolute; inset:0; display:none; flex-direction:column;
+    justify-content:center; padding:6vh 9vw; gap:26px;
+  }
+  .slide.active{display:flex}
+  .eyebrow{font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--brass)}
+  h1{font-size:clamp(34px,5.2vw,64px);line-height:1.12;font-weight:600;text-wrap:balance}
+  h2{font-size:clamp(26px,3.6vw,42px);line-height:1.18;font-weight:600;text-wrap:balance}
+  .lead{font-size:clamp(17px,1.6vw,22px);color:var(--ink2);max-width:62ch}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
+  .card h3{font-size:15px;color:var(--brass);margin-bottom:8px}
+  .card p{font-size:15.5px;color:var(--ink2)}
+  .card .big{font-size:30px;color:var(--ink);margin:2px 0 4px}
+  ul.clean{list-style:none;display:flex;flex-direction:column;gap:12px;max-width:70ch}
+  ul.clean li{padding-left:26px;position:relative;color:var(--ink2);font-size:clamp(16px,1.5vw,20px)}
+  ul.clean li::before{content:"⚖";position:absolute;left:0;color:var(--brass);opacity:.85;font-size:14px;top:3px}
+  ul.clean b{color:var(--ink);font-weight:600}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:8px 20px;font-size:15.5px;max-width:75ch}
+  .kv .k{color:var(--ink3)}
+  .kv .v{color:var(--ink2)} .kv .v a{color:var(--brass);text-decoration:none}
+  .quote{font-size:clamp(22px,2.8vw,34px);line-height:1.35;max-width:26ch}
+  .quote em{color:var(--brass);font-style:normal}
+  .footer-note{color:var(--ink3);font-size:14px}
+  .badgeline{display:flex;gap:10px;flex-wrap:wrap}
+  .pill{font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);color:var(--ink2)}
+  .pill.hot{border-color:var(--brass);color:var(--brass);background:var(--brass-soft)}
+  table{border-collapse:collapse;font-size:15.5px;max-width:900px}
+  th{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);text-align:left;font-weight:500;padding:8px 14px;border-bottom:1px solid var(--line)}
+  td{padding:9px 14px;border-bottom:1px solid var(--line);color:var(--ink2)}
+  td.hl{color:var(--ink)}
+  .hud{
+    position:fixed;bottom:20px;right:26px;display:flex;align-items:center;gap:14px;
+    color:var(--ink3);font-size:12.5px;z-index:10;
+  }
+  .hud .dots{display:flex;gap:5px}
+  .hud .dots i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block;transition:background .2s}
+  .hud .dots i.on{background:var(--brass)}
+  .brandmark{position:fixed;top:22px;left:26px;color:var(--ink3);font-size:14px;z-index:10}
+  .brandmark b{color:var(--brass);font-weight:400}
+  .watermark{position:fixed;right:-40px;bottom:-70px;font-size:340px;opacity:.028;pointer-events:none;user-select:none}
+  a{color:var(--brass)}
+  @media (max-width:700px){.slide{padding:5vh 6vw}}
+</style>
+</head>
+<body>
+<div class="brandmark serif"><b>⚖</b> Scruple</div>
+<div class="watermark">⚖</div>
+
+<!-- 1 · Title -->
+<section class="slide active">
+  <div class="eyebrow">Encode × Arc · Programmable Money Hackathon · mid-hackathon</div>
+  <h1 class="serif">Stripe-grade billing<br>for the USDC economy.</h1>
+  <p class="lead">Usage-based and recurring billing for APIs, SaaS, and AI agents — non-custodial, live on Arc testnet.</p>
+  <div class="badgeline">
+    <span class="pill hot">Track · DeFi</span>
+    <span class="pill hot">Track · Agentic Economy</span>
+    <span class="pill mono">github.com/berkay1532/scruple</span>
+  </div>
+</section>
+
+<!-- 2 · Problem -->
+<section class="slide">
+  <div class="eyebrow">Problem</div>
+  <h2 class="serif">The fastest-growing customers can't be billed.</h2>
+  <ul class="clean">
+    <li><b>AI APIs earn per request but can't bill per request</b> — 2.9% + $0.30 card minimums make a $0.001 charge impossible, so everyone falls back to prepaid credit walls.</li>
+    <li><b>AI agents hold no payment instrument</b> — no card, no limits, no accountability.</li>
+    <li><b>Crypto has no pull payments</b> — and its approval UX is "unlimited allowance, trust me."</li>
+  </ul>
+</section>
+
+<!-- 3 · Product -->
+<section class="slide">
+  <div class="eyebrow">Product</div>
+  <h2 class="serif">One platform, two faces.</h2>
+  <div class="cols">
+    <div class="card">
+      <h3>BILLING — the merchant side</h3>
+      <p><b style="color:var(--ink)">Metered:</b> one middleware line turns any endpoint into HTTP-402 pay-per-call, settled in batches via Circle Gateway — $0.0003 payments become economical.</p>
+      <p style="margin-top:8px"><b style="color:var(--ink)">Recurring:</b> on-chain plans with immutable versioned pricing, permissionless charging, 3-day grace — pull payments crypto never had.</p>
+    </div>
+    <div class="card">
+      <h3>CARDS — the payer side</h3>
+      <p>Mint a <b style="color:var(--ink)">card</b>: periodic budget, merchant allowlist, expiry — then hand the signer key to a human <i>or an AI agent</i>. Freeze instantly, cancel anytime. No funds ever parked on the card.</p>
+      <p style="margin-top:8px">A corporate card for software.</p>
+    </div>
+  </div>
+  <p class="footer-note">Non-custodial end-to-end: money moves wallet-to-wallet; the 1% fee is an on-chain split at settlement.</p>
+</section>
+
+<!-- 4 · Why Arc -->
+<section class="slide">
+  <div class="eyebrow">Why Arc · why now</div>
+  <h2 class="serif">This product is only possible here.</h2>
+  <div class="cols">
+    <div class="card"><h3>USDC-native gas</h3><div class="big mono">~$0.01</div><p>stable, dollar-denominated fees — keeper &amp; batch costs are rounding errors</p></div>
+    <div class="card"><h3>Deterministic finality</h3><div class="big mono">&lt;1s</div><p>irreversible — "payment received" and "service unlocked" are the same moment</p></div>
+    <div class="card"><h3>Gateway batching</h3><div class="big mono">$0.0003</div><p>thousands of signed micro-payments settle as one on-chain transaction</p></div>
+  </div>
+</section>
+
+<!-- 5 · Live proof -->
+<section class="slide">
+  <div class="eyebrow">Live on Arc testnet — every demo number is a chain read</div>
+  <h2 class="serif">Not a mock.</h2>
+  <div class="kv mono" style="font-size:14.5px">
+    <span class="k">CardIssuer</span><span class="v">0xE20EB808cF87B73D716C96CBbb1eee62282506d0</span>
+    <span class="k">SubscriptionManager</span><span class="v">0x3d0b19b6B06E568A23AA916270008012Dca55795</span>
+    <span class="k">First live charge</span><span class="v">0xca8f7227…d1ea7ad — $1.00 pulled, exact 1% fee split</span>
+    <span class="k">Metered rail</span><span class="v">20/20 agent payments @ $0.001 · gasless · Gateway-batched</span>
+  </div>
+  <ul class="clean" style="margin-top:6px">
+    <li><b>Full loop proven live:</b> plan → card → subscribe → keeper charge → dashboard feed → webhook event.</li>
+    <li><b>Agent budget guard proven live:</b> spending policy refuses beyond its box — the math wins, not the agent's intentions.</li>
+  </ul>
+</section>
+
+<!-- 6 · Architecture -->
+<section class="slide">
+  <div class="eyebrow">Architecture</div>
+  <h2 class="serif">Five components, ~208 tests.</h2>
+  <table>
+    <tr><th>Layer</th><th>What it does</th></tr>
+    <tr><td class="hl">Contracts <span class="mono">(Foundry, 28 tests)</span></td><td>CardIssuer (spend policy, ERC-7715-aligned) · SubscriptionManager (versioned plans, permissionless charge, grace)</td></tr>
+    <tr><td class="hl">@scruple/server</td><td>Express 402 middleware: rate card → challenge → verify → Gateway settle → payment events</td></tr>
+    <tr><td class="hl">@scruple/client</td><td>Payer/agent SDK: catch 402 → policy gate (budget/allowlist) → pay → retry</td></tr>
+    <tr><td class="hl">@scruple/service</td><td>Indexer (chunked getLogs) · HMAC webhooks w/ retry schedule · at-risk monitor · keeper · ingest API</td></tr>
+    <tr><td class="hl">Dashboard <span class="mono">(Next.js)</span></td><td>Merchant revenue/plans/subs + Cards gallery w/ live freeze — hardened by real user-testing sessions</td></tr>
+  </table>
+</section>
+
+<!-- 7 · Honest enforcement -->
+<section class="slide">
+  <div class="eyebrow">Engineering rigor — our differentiator</div>
+  <h2 class="serif">An honest enforcement model.</h2>
+  <table>
+    <tr><th>Layer</th><th>Guarantee</th><th>Today</th></tr>
+    <tr><td class="hl">Funding pool cap</td><td>agent can never exceed what you deposited</td><td>🔒 hard, on-chain</td></tr>
+    <tr><td class="hl">Subscriptions rail</td><td>every charge consults the card contract; violations revert</td><td>🔒 hard, on-chain</td></tr>
+    <tr><td class="hl">Merchant gate</td><td>sellers verify cards via <span class="mono">previewSpend</span> before serving</td><td>🔒 hard, seller-side</td></tr>
+    <tr><td class="hl">Metered granularity</td><td>per-day / per-merchant limits</td><td>🔧 SDK-enforced, on-chain-declared</td></tr>
+  </table>
+  <p class="footer-note">Card schema is field-aligned with ERC-7715 — when smart-account signatures land on Gateway, the full-hard upgrade is mechanical, not a redesign.</p>
+</section>
+
+<!-- 8 · Market -->
+<section class="slide">
+  <div class="eyebrow">Market</div>
+  <h2 class="serif">A validated category with an empty map square.</h2>
+  <ul class="clean">
+    <li><b>x402 is now a Linux Foundation standard</b> — AWS, Google, Visa, Stripe, Circle, Coinbase, Mastercard among founders · 165M transactions by Apr '26.</li>
+    <li><b>Nevermined</b> does agent metering on Base. <b>Radom</b> does human subscriptions multi-EVM. <b>Scruple unifies both, non-custodial — where neither exists: Arc.</b></li>
+    <li>Arc's 182-project open-source showcase: <b>zero billing platforms</b>. The metered verticals already building there are our first design partners.</li>
+  </ul>
+</section>
+
+<!-- 9 · Roadmap -->
+<section class="slide">
+  <div class="eyebrow">Built in 4 weeks — what's next</div>
+  <h2 class="serif">Mid-hackathon → a product SaaS teams can adopt in a day.</h2>
+  <div class="cols">
+    <div class="card"><h3>NOW → FINAL (Aug 9)</h3><p>Hosted checkout embed (<span class="mono">&lt;ScrupleCheckout/&gt;</span>) + example SaaS integration · webhook management UI with delivery inspector &amp; resend · developer onboarding</p></div>
+    <div class="card"><h3>WITH ARC</h3><p>Mainnet day-one billing layer · accelerator → first design partners · ERC-7715 hard enforcement as Gateway adds smart-account support</p></div>
+  </div>
+  <p class="footer-note">Process receipts: every phase spec'd, plan-driven, independently code-reviewed; 7 hardening fixes shipped from live user-testing before any judge saw the product.</p>
+</section>
+
+<!-- 10 · Close -->
+<section class="slide">
+  <div class="eyebrow">Scruple · the smallest payment, measured exactly</div>
+  <p class="quote serif">Stripe taught websites to take cards.<br><em>Scruple teaches apps and agents to charge USDC.</em></p>
+  <div class="kv" style="margin-top:10px">
+    <span class="k">Repo</span><span class="v mono"><a href="https://github.com/berkay1532/scruple">github.com/berkay1532/scruple</a></span>
+    <span class="k">Live contracts</span><span class="v mono"><a href="https://testnet.arcscan.app/address/0x3d0b19b6B06E568A23AA916270008012Dca55795">testnet.arcscan.app → SubscriptionManager</a></span>
+    <span class="k">Builder</span><span class="v">@berkay1532 · Encode × Arc 2026</span>
+  </div>
+</section>
+
+<div class="hud">
+  <span id="counter" class="mono">1 / 10</span>
+  <div class="dots" id="dots"></div>
+  <span>← → to navigate</span>
+</div>
+
+<script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var dots = document.getElementById("dots");
+  slides.forEach(function(){ var i=document.createElement("i"); dots.appendChild(i); });
+  var idx = 0;
+  function show(n){
+    idx = Math.max(0, Math.min(slides.length-1, n));
+    slides.forEach(function(s,i){ s.classList.toggle("active", i===idx); });
+    Array.prototype.forEach.call(dots.children, function(d,i){ d.classList.toggle("on", i===idx); });
+    document.getElementById("counter").textContent = (idx+1) + " / " + slides.length;
+  }
+  document.addEventListener("keydown", function(e){
+    if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown") show(idx+1);
+    if(e.key==="ArrowLeft"||e.key==="PageUp") show(idx-1);
+    if(e.key==="Home") show(0);
+  });
+  document.addEventListener("click", function(e){
+    if(e.target.closest("a")) return;
+    show(e.clientX > innerWidth/3 ? idx+1 : idx-1);
+  });
+  show(0);
+})();
+</script>
+</body>
+</html>
