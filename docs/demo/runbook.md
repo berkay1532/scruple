@@ -79,15 +79,32 @@ Scene beats (see `video-storyboard.md` for timings):
 
 ## 3. Demo storyline B — metered / agent (the x402 rail)
 
-One-time prep (safe to do before recording):
+Live-proven procedure (2026-07-22 run: 20/20 payments succeeded). Three
+hard-won rules first:
+
+- **Buyer wallet MUST differ from the seller address** — Gateway rejects
+  settlements where payer == payee (`self_transfer`). Demo buyer:
+  `0x75dca3CA1CEbb69cA7381C200491C4b03131C3d4` (key in
+  `~/.scruple-demo-buyer.key`, funded from the deployer).
+- **Authorization validity ≥ 7 days** — the middleware ships
+  `maxTimeoutSeconds: 691200` (8 days); shorter windows get
+  `authorization_validity_too_short`. Don't lower it.
+- **Gateway deposits credit with a delay** (seconds to ~1 min). If the first
+  payment after a fresh deposit fails, wait and rerun — check
+  `POST gateway-api-testnet.circle.com/v1/balances` for the credited amount.
+
 ```bash
-# Buyer needs a Gateway deposit (one on-chain tx; ~$1 of the wallet's USDC)
-cd examples && SELLER_ADDRESS=0x2526a4Ebc2FFa3caE58F0861FfD78027fc86d931 npx tsx seller.ts   # Terminal 3
-BUYER_PRIVATE_KEY=<key> BASE_URL=http://localhost:3000-NO->http://localhost:3001? npx tsx agent.ts
+# Terminal 3a — RPC shim (smooths public-RPC rate limits for the SDK)
+npx tsx examples/rpc-shim.ts
+
+# Terminal 3b — seller API (dashboard must be stopped: both want :3000; the
+# storyline B screen capture is terminal + dashboard-feed anyway)
+SELLER_ADDRESS=0x2526a4Ebc2FFa3caE58F0861FfD78027fc86d931 npx tsx examples/seller.ts
+
+# Terminal 3c — agent (auto-deposits $1 into Gateway on first run)
+BUYER_PRIVATE_KEY=$(cat ~/.scruple-demo-buyer.key) BASE_URL=http://localhost:3000 \
+RPC_URL=http://localhost:8547 npx tsx examples/agent.ts
 ```
-> NOTE: run `seller.ts` on a port that doesn't clash with the dashboard
-> (`PORT=4000` if supported, or stop the dashboard while shooting this scene —
-> the storyline B capture can be terminal-only).
 
 Beats: agent fires requests → per-call $0.001 payments stream in the seller
 log → stop at the spending-policy line ("Stopped by spending policy") to show

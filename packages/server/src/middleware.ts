@@ -71,6 +71,8 @@ export function scruple(opts: ScrupleOptions): RequestHandler {
       return;
     }
     if (!settled.success) {
+      // Server-side visibility: the client SDK surfaces only a generic error.
+      console.error("[scruple] settle rejected:", settled.errorReason ?? "(no reason)");
       res.status(402).json({ error: "Payment settlement failed", reason: settled.errorReason });
       return;
     }

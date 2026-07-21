@@ -5,7 +5,9 @@ const privateKey = process.env.BUYER_PRIVATE_KEY as `0x${string}` | undefined;
 if (!privateKey) throw new Error("BUYER_PRIVATE_KEY env var required");
 const base = process.env.BASE_URL ?? "http://localhost:3000";
 
-const gateway = new GatewayClient({ chain: "arcTestnet", privateKey });
+// RPC_URL lets the agent route chain calls through a custom endpoint —
+// e.g. examples/rpc-shim.ts, which smooths public-RPC rate limits.
+const gateway = new GatewayClient({ chain: "arcTestnet", privateKey, rpcUrl: process.env.RPC_URL });
 
 // One-time: make sure the Gateway balance is funded (deposit is an onchain tx).
 const balances = await gateway.getBalances();

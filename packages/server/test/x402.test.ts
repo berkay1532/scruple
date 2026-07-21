@@ -15,7 +15,7 @@ describe("buildPaymentRequirements", () => {
       asset: ARC_TESTNET_USDC,
       amount: "1000",
       payTo: SELLER,
-      maxTimeoutSeconds: 345600,
+      maxTimeoutSeconds: 691200, // 8 days — Gateway rejects authorization validity < 7 days (authorization_validity_too_short)
       extra: {
         name: "GatewayWalletBatched",
         version: "1",
