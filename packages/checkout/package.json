@@ -1,0 +1,26 @@
+{
+  "name": "@scruple/checkout",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": { "test": "vitest run" },
+  "peerDependencies": {
+    "@tanstack/react-query": ">=5",
+    "react": ">=19",
+    "viem": ">=2",
+    "wagmi": ">=3"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.60.0",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.0",
+    "jsdom": "^25.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^5.9.3",
+    "viem": "^2.47.1",
+    "vitest": "^3.0.0",
+    "wagmi": "^3.0.0"
+  }
+}
