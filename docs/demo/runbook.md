@@ -137,5 +137,4 @@ hard-enforcement upgrade mechanical.
   saga — either narrate as "price experiments" or create a fresh plan and
   ignore them. No archive function by design (immutable pricing); backlog.
 - Metered rate-card table fills only after storyline B has run at least once.
-- Webhooks screen is informational until the delivery inspector ships
-  (final-submission goal).
+- Webhook management is live end-to-end: the dashboard Webhooks screen drives the service's `/admin/*` API — add/pause/resume/rotate/delete endpoints (secrets shown once on create/rotate), plus a deliveries table with status filters and Resend.

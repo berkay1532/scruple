@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Store, type DomainEvent } from "../src/db";
 
 function ev(id: string, at = 1000): DomainEvent {
@@ -103,5 +106,197 @@ describe("Store", () => {
     const huge = 2n ** 60n + 12345n;
     store.insertEvent({ id: "e1", type: "payment.succeeded", blockNumber: huge, payload: { subId: "1" }, at: 100 });
     expect(store.listRecentEvents()[0].blockNumber).toBe(huge);
+  });
+});
+
+describe("Store admin surface", () => {
+  let store: Store;
+  beforeEach(() => { store = new Store(":memory:"); });
+
+  describe("migration idempotency", () => {
+    let dir: string;
+    let dbPath: string;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "scruple-db-"));
+      dbPath = join(dir, "store.sqlite");
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("constructing the Store twice on the same file-backed DB does not throw and paused defaults to 0", () => {
+      const first = new Store(dbPath);
+      const epId = first.addEndpoint("https://hooks.example/a", "s3cr3t");
+      first.close();
+
+      expect(() => {
+        const second = new Store(dbPath);
+        const admin = second.listEndpointsAdmin();
+        expect(admin).toHaveLength(1);
+        expect(admin[0]).toMatchObject({ id: epId, url: "https://hooks.example/a", paused: false });
+        second.close();
+      }).not.toThrow();
+
+      // third construction: still idempotent (ALTER TABLE must not re-run)
+      expect(() => {
+        const third = new Store(dbPath);
+        third.close();
+      }).not.toThrow();
+    });
+  });
+
+  describe("paused endpoints", () => {
+    it("excludes a paused endpoint from duePending and includes it again on resume", () => {
+      const epId = store.addEndpoint("https://hooks.example/a", "s3cr3t");
+      store.insertEvent(ev("0xaa:1", 1000));
+      expect(store.duePending(1000)).toHaveLength(1);
+
+      expect(store.setEndpointPaused(epId, true)).toBe(true);
+      expect(store.duePending(1000)).toHaveLength(0);
+
+      expect(store.setEndpointPaused(epId, false)).toBe(true);
+      expect(store.duePending(1000)).toHaveLength(1);
+    });
+
+    it("setEndpointPaused returns false for an absent endpoint", () => {
+      expect(store.setEndpointPaused(999, true)).toBe(false);
+    });
+  });
+
+  describe("listEndpointsAdmin", () => {
+    it("returns id/url/secretPreview/paused/createdAtKnown shape with masked secret", () => {
+      const epId = store.createEndpoint("https://hooks.example/a", "whsec_abcdefghijklmnopqrstuvwxyz89");
+      const admin = store.listEndpointsAdmin();
+      expect(admin).toHaveLength(1);
+      expect(admin[0]).toEqual({
+        id: epId,
+        url: "https://hooks.example/a",
+        secretPreview: "whsec_ab…89",
+        paused: false,
+        createdAtKnown: false,
+      });
+    });
+  });
+
+  describe("deleteEndpoint", () => {
+    it("cascades: removes the endpoint and its deliveries in one transaction", () => {
+      const epId = store.addEndpoint("https://hooks.example/a", "s3cr3t");
+      store.insertEvent(ev("0xaa:1", 1000));
+      expect(store.duePending(1000)).toHaveLength(1);
+
+      expect(store.deleteEndpoint(epId)).toBe(true);
+
+      expect(store.listEndpointsAdmin()).toHaveLength(0);
+      expect(store.duePending(1000)).toHaveLength(0);
+      expect(store.listDeliveries()).toHaveLength(0);
+    });
+
+    it("returns false when the endpoint does not exist", () => {
+      expect(store.deleteEndpoint(999)).toBe(false);
+    });
+  });
+
+  describe("rotateEndpointSecret", () => {
+    it("changes the stored secret, verified via duePending's secret field", () => {
+      const epId = store.addEndpoint("https://hooks.example/a", "old-secret");
+      store.insertEvent(ev("0xaa:1", 1000));
+      expect(store.duePending(1000)[0].secret).toBe("old-secret");
+
+      expect(store.rotateEndpointSecret(epId, "new-secret")).toBe(true);
+      expect(store.duePending(1000)[0].secret).toBe("new-secret");
+    });
+
+    it("returns false for an absent endpoint", () => {
+      expect(store.rotateEndpointSecret(999, "x")).toBe(false);
+    });
+  });
+
+  describe("listDeliveries", () => {
+    it("derives delivered/retrying/pending/dead, orders newest-first, and supports a status filter", () => {
+      const epId = store.addEndpoint("https://hooks.example/a", "s3cr3t");
+
+      // e-delivered: event at=1000, then a success
+      store.insertEvent(ev("0xaa:delivered", 1000));
+      store.markAttempt("0xaa:delivered", epId, { ok: true, status: 200, now: 1500, nextAttemptAt: null });
+
+      // e-retrying: event at=2000, one failed attempt with a future retry
+      store.insertEvent(ev("0xaa:retrying", 2000));
+      store.markAttempt("0xaa:retrying", epId, { ok: false, status: 500, now: 2500, nextAttemptAt: 9999 });
+
+      // e-pending: event at=3000, never attempted (still attempts=0, next_attempt_at set at insert)
+      store.insertEvent(ev("0xaa:pending", 3000));
+
+      // e-dead: event at=4000, failed with no further retry scheduled
+      store.insertEvent(ev("0xaa:dead", 4000));
+      store.markAttempt("0xaa:dead", epId, { ok: false, status: 500, now: 4500, nextAttemptAt: 8888 });
+      store.markAttempt("0xaa:dead", epId, { ok: false, status: 500, now: 8888, nextAttemptAt: null });
+
+      const all = store.listDeliveries();
+      expect(all.map((d) => d.eventId)).toEqual(["0xaa:dead", "0xaa:pending", "0xaa:retrying", "0xaa:delivered"]);
+
+      const byId = Object.fromEntries(all.map((d) => [d.eventId, d]));
+      expect(byId["0xaa:delivered"]).toMatchObject({
+        endpointId: epId, url: "https://hooks.example/a", type: "payment.succeeded",
+        attempts: 0, lastStatus: 200, nextAttemptAt: null, status: "delivered",
+      });
+      expect(byId["0xaa:delivered"].deliveredAt).toBe(1500);
+
+      expect(byId["0xaa:retrying"]).toMatchObject({
+        attempts: 1, lastStatus: 500, nextAttemptAt: 9999, deliveredAt: null, status: "retrying",
+      });
+
+      expect(byId["0xaa:pending"]).toMatchObject({
+        attempts: 0, lastStatus: null, deliveredAt: null, status: "pending",
+      });
+      expect(byId["0xaa:pending"].nextAttemptAt).toBe(3000);
+
+      expect(byId["0xaa:dead"]).toMatchObject({
+        attempts: 2, lastStatus: 500, nextAttemptAt: null, deliveredAt: null, status: "dead",
+      });
+
+      expect(store.listDeliveries({ status: "dead" }).map((d) => d.eventId)).toEqual(["0xaa:dead"]);
+      expect(store.listDeliveries({ status: "delivered" }).map((d) => d.eventId)).toEqual(["0xaa:delivered"]);
+      expect(store.listDeliveries({ status: "retrying" }).map((d) => d.eventId)).toEqual(["0xaa:retrying"]);
+      expect(store.listDeliveries({ status: "pending" }).map((d) => d.eventId)).toEqual(["0xaa:pending"]);
+    });
+
+    it("clamps limit to 1..500", () => {
+      const epId = store.addEndpoint("https://hooks.example/a", "s3cr3t");
+      store.insertEvent(ev("0xaa:1", 1000));
+      store.insertEvent(ev("0xaa:2", 2000));
+      void epId;
+      expect(store.listDeliveries({ limit: 0 })).toHaveLength(1);
+      expect(store.listDeliveries({ limit: 9999 })).toHaveLength(2);
+    });
+  });
+
+  describe("reviveDelivery", () => {
+    it("revives a dead delivery so it reappears in duePending(now), without resetting attempts", () => {
+      const epId = store.addEndpoint("https://hooks.example/a", "s3cr3t");
+      store.insertEvent(ev("0xaa:1", 1000));
+      store.markAttempt("0xaa:1", epId, { ok: false, status: 500, now: 1500, nextAttemptAt: 2000 });
+      store.markAttempt("0xaa:1", epId, { ok: false, status: 500, now: 2000, nextAttemptAt: null }); // dead
+      expect(store.duePending(9_999_999)).toHaveLength(0);
+
+      expect(store.reviveDelivery("0xaa:1", epId, 5000)).toBe(true);
+      const due = store.duePending(5000);
+      expect(due).toHaveLength(1);
+      expect(due[0].attempts).toBe(2); // attempts counter not reset
+    });
+
+    it("returns false for a delivered delivery and leaves it delivered", () => {
+      const epId = store.addEndpoint("https://hooks.example/a", "s3cr3t");
+      store.insertEvent(ev("0xaa:1", 1000));
+      store.markAttempt("0xaa:1", epId, { ok: true, status: 200, now: 1500, nextAttemptAt: null });
+
+      expect(store.reviveDelivery("0xaa:1", epId, 5000)).toBe(false);
+      expect(store.duePending(9_999_999)).toHaveLength(0);
+    });
+
+    it("returns false for an absent delivery", () => {
+      expect(store.reviveDelivery("nope", 1, 5000)).toBe(false);
+    });
   });
 });

@@ -5,8 +5,11 @@ import {
   formatUsd,
   parseUsdToAtomic,
   shortAddr,
+  shortEventId,
   shortHash,
+  shortUrl,
   timeAgo,
+  timeUntil,
 } from "../lib/format";
 
 describe("formatUsd", () => {
@@ -43,6 +46,22 @@ describe("shortHash", () => {
   });
 });
 
+describe("shortEventId", () => {
+  it("shortens the tx-hash half of a txHash:logIndex id but passes short synthetic ids through", () => {
+    expect(shortEventId("0xca8f7227b0d0c20c6c693e07bceac143b967227285f3b44f1d5e759b6d1ea7ad:9")).toBe("0xca8f…:9");
+    expect(shortEventId("metered:u-88a2")).toBe("metered:u-88a2");
+  });
+});
+
+describe("shortUrl", () => {
+  it("strips the scheme and truncates long URLs with an ellipsis", () => {
+    expect(shortUrl("https://short.dev/hooks")).toBe("short.dev/hooks");
+    expect(shortUrl("https://api.a-very-long-domain-name.example.com/scruple/webhooks")).toBe(
+      "api.a-very-long-domain-name.examp…",
+    );
+  });
+});
+
 describe("cosmeticCardNumber", () => {
   it("pads a single-digit card id into 4 groups", () => {
     expect(cosmeticCardNumber("4")).toBe("5crp 0000 0000 0004");
@@ -68,6 +87,23 @@ describe("timeAgo", () => {
     const at = Date.UTC(2026, 6, 20, 9, 0, 0);
     const now = at + 5 * 24 * 60 * 60_000;
     expect(timeAgo(at, now)).toBe("Jul 20");
+  });
+});
+
+describe("timeUntil", () => {
+  it("renders minutes-until for a near-future timestamp", () => {
+    const now = Date.UTC(2026, 6, 20, 12, 0, 0);
+    expect(timeUntil(now + 5 * 60_000, now)).toBe("in 5m");
+  });
+
+  it("renders hours-until for a same-day future timestamp", () => {
+    const now = Date.UTC(2026, 6, 20, 12, 0, 0);
+    expect(timeUntil(now + 2 * 60 * 60_000, now)).toBe("in 2h");
+  });
+
+  it("falls back to timeAgo for a past timestamp", () => {
+    const now = Date.UTC(2026, 6, 20, 12, 0, 0);
+    expect(timeUntil(now - 2 * 60_000, now)).toBe(timeAgo(now - 2 * 60_000, now));
   });
 });
 
