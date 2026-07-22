@@ -118,8 +118,6 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
                   <input
                     type="radio"
                     name="sck-card"
-                    role="radio"
-                    aria-label={card.label}
                     disabled={!card.eligible || busy}
                     checked={state.selectedCardId === card.cardId}
                     onChange={() => select(card.cardId)}
