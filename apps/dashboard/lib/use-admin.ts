@@ -24,9 +24,9 @@ export type AdminDelivery = {
   type: string;
   attempts: number;
   lastStatus: number | null;
-  /** Epoch seconds, or null. */
+  /** Epoch milliseconds, or null. */
   nextAttemptAt: number | null;
-  /** Epoch seconds, or null. */
+  /** Epoch milliseconds, or null. */
   deliveredAt: number | null;
   status: DeliveryStatus;
 };

@@ -914,7 +914,8 @@ function Webhooks() {
                   <td className="mono">{shortUrl(d.url)}</td>
                   <td className="num">{d.attempts}</td>
                   <td className="num mono">{d.lastStatus ?? "—"}</td>
-                  <td>{d.nextAttemptAt !== null ? timeUntil(d.nextAttemptAt * 1000, nowMs) : "—"}</td>
+                  {/* nextAttemptAt is epoch milliseconds (Store timestamps are ms) */}
+                  <td>{d.nextAttemptAt !== null ? timeUntil(d.nextAttemptAt, nowMs) : "—"}</td>
                   <td>
                     <Badge tone={DELIVERY_TONE[d.status]}>{d.status}</Badge>
                   </td>
