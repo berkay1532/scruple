@@ -49,7 +49,7 @@ export function createRpcForwarder(opts: RpcForwarderOptions): RpcForwarder {
   const {
     upstream,
     fetchImpl = fetch,
-    minGapMs = 250,
+    minGapMs = 75,
     maxAttempts = 4,
     backoffMs = 400,
     now = Date.now,

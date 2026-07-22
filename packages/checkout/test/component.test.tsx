@@ -21,6 +21,7 @@ function baseHookReturn(overrides: Partial<UseCheckoutFlowReturn> = {}): UseChec
     state: { step: "connect" },
     plan: undefined,
     cards: [],
+    initialLoading: false,
     connect: vi.fn(),
     isConnected: false,
     address: undefined,
@@ -42,6 +43,46 @@ describe("ScrupleCheckout — connect step", () => {
     const button = screen.getByRole("button", { name: /connect/i });
     fireEvent.click(button);
     expect(connect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ScrupleCheckout — initial loading", () => {
+  it("renders exactly one 'Loading plan…' string and nothing else in the body while initialLoading is true", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "loading" },
+        plan: undefined,
+        cards: [],
+        initialLoading: true,
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    render(<ScrupleCheckout planId={1n} />);
+
+    expect(screen.getAllByText("Loading plan…")).toHaveLength(1);
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByText("No eligible cards yet — mint one below.")).toBeNull();
+    expect(screen.queryByRole("button", { name: /connect/i })).toBeNull();
+  });
+
+  it("does not show the loading placeholder once initialLoading is false and the plan has resolved, even if cards arrived earlier in the same tick", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "pick" },
+        plan: { amount: 29_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        cards: [{ cardId: 4n, label: "Card #4", eligible: true }],
+        initialLoading: false,
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    render(<ScrupleCheckout planId={1n} />);
+
+    expect(screen.queryAllByText("Loading plan…")).toHaveLength(0);
+    expect(screen.getByRole("radiogroup")).toBeTruthy();
   });
 });
 

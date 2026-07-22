@@ -88,6 +88,13 @@ export interface UseCheckoutFlowReturn {
   state: CheckoutState;
   plan?: CheckoutPlan;
   cards: CheckoutCard[];
+  /** True until every initial-load chain read has settled (success or
+   * error): the plan reads, nextCardId, and — if nextCardId revealed any
+   * candidate ids — both the getCard and allowlist multicalls. While this is
+   * true, `cards` is guaranteed to be `[]` rather than a partially-eligible
+   * interim list — the UI should render a single loading placeholder and
+   * nothing else, never a staged reveal of cards flipping eligible. */
+  initialLoading: boolean;
   connect(): void;
   isConnected: boolean;
   address?: string;
@@ -131,7 +138,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
   // plan is known (the version number isn't available until the first read
   // resolves, so this can't be a single multicall — same two-step pattern as
   // apps/dashboard/lib/use-merchant.ts).
-  const { data: planRaw } = useReadContract({
+  const { data: planRaw, status: planStatus } = useReadContract({
     address: addresses.subscriptionManager,
     abi: SUBSCRIPTION_MANAGER_ABI,
     functionName: "getPlan",
@@ -140,7 +147,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     query: { retry: 2 },
   });
 
-  const { data: versionRaw } = useReadContract({
+  const { data: versionRaw, status: versionStatus } = useReadContract({
     address: addresses.subscriptionManager,
     abi: SUBSCRIPTION_MANAGER_ABI,
     functionName: "getPlanVersion",
@@ -166,7 +173,11 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
   // --- Card scan: nextCardId, then getCard + allowlist(cardId, merchant)
   // multicall over the most-recent CARD_SCAN_LIMIT ids (see the constant's
   // doc-comment for the tradeoff), filtered down to cards this buyer owns.
-  const { data: nextCardId, refetch: refetchNextCardId } = useReadContract({
+  const {
+    data: nextCardId,
+    status: nextCardIdStatus,
+    refetch: refetchNextCardId,
+  } = useReadContract({
     address: addresses.cardIssuer,
     abi: CARD_ISSUER_ABI,
     functionName: "nextCardId",
@@ -190,12 +201,18 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
   // instead of collapsing to a `Card | boolean` union per slot. Both still
   // fire in parallel (React Query has no reason to serialize them), so the
   // wall-clock cost vs. one combined multicall is negligible.
+  //
+  // getCardContracts depends only on scanIds (i.e. nextCardId) — it doesn't
+  // read anything plan-shaped, so it must not wait on `plan` to resolve first
+  // (that would be an artificial dependency stalling the initial load).
+  // allowlistContracts genuinely needs `plan.merchant` as a call argument, so
+  // it fires once plan is ready, in parallel with (not after) getCardContracts.
   const getCardContracts = useMemo(() => {
-    if (!plan || scanIds.length === 0) return [];
+    if (scanIds.length === 0) return [];
     return scanIds.map(
       (id) => ({ address: addresses.cardIssuer, abi: CARD_ISSUER_ABI, functionName: "getCard", args: [id] }) as const,
     );
-  }, [scanIds, plan, addresses.cardIssuer]);
+  }, [scanIds, addresses.cardIssuer]);
 
   const allowlistContracts = useMemo(() => {
     if (!plan || scanIds.length === 0) return [];
@@ -210,22 +227,52 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     );
   }, [scanIds, plan, addresses.cardIssuer]);
 
-  const { data: cardResults, refetch: refetchCardResults } = useReadContracts({
+  const {
+    data: cardResults,
+    status: cardResultsStatus,
+    refetch: refetchCardResults,
+  } = useReadContracts({
     contracts: getCardContracts,
     allowFailure: true,
     chainId: ARC_CHAIN_ID,
     query: { enabled: getCardContracts.length > 0, retry: 2 },
   });
 
-  const { data: allowlistResults, refetch: refetchAllowlistResults } = useReadContracts({
+  const {
+    data: allowlistResults,
+    status: allowlistResultsStatus,
+    refetch: refetchAllowlistResults,
+  } = useReadContracts({
     contracts: allowlistContracts,
     allowFailure: true,
     chainId: ARC_CHAIN_ID,
     query: { enabled: allowlistContracts.length > 0, retry: 2 },
   });
 
+  // --- Atomic initial-load gate. Settled means "resolved to success or
+  // error", not merely "has data" — a disabled query (e.g. versionRaw before
+  // planRaw lands, or the multicalls before scanIds/plan are ready) reports
+  // status "pending" forever, so gating on status alone (rather than data
+  // !== undefined) correctly waits through that disabled phase too.
+  const planSettled =
+    planStatus === "error" || (planStatus === "success" && (versionStatus === "success" || versionStatus === "error"));
+  const nextCardIdSettled = nextCardIdStatus === "success" || nextCardIdStatus === "error";
+  // If plan never resolved to a usable value, or there are no candidate ids
+  // to scan, there's nothing further to wait for from the card multicalls
+  // (allowlistContracts can't even fire without plan.merchant).
+  const cardScanSettled =
+    !plan || scanIds.length === 0
+      ? true
+      : (cardResultsStatus === "success" || cardResultsStatus === "error") &&
+        (allowlistResultsStatus === "success" || allowlistResultsStatus === "error");
+  const initialLoading = !(planSettled && nextCardIdSettled && cardScanSettled);
+
   const cards = useMemo<CheckoutCard[]>(() => {
-    if (!cardResults || !plan || !address) return [];
+    // Never compute eligibility from a partial result set: until every
+    // initial-load read has settled, hold `cards` at `[]` rather than
+    // surfacing an interim list where every card looks ineligible because
+    // allowlistResults simply hasn't arrived yet.
+    if (initialLoading || !cardResults || !plan || !address) return [];
     const out: CheckoutCard[] = [];
     for (let i = 0; i < scanIds.length; i++) {
       const cardResult = cardResults[i];
@@ -248,7 +295,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
       });
     }
     return out;
-  }, [cardResults, allowlistResults, scanIds, plan, address]);
+  }, [initialLoading, cardResults, allowlistResults, scanIds, plan, address]);
 
   function select(cardId: bigint) {
     dispatch({ type: "select", cardId });
@@ -364,6 +411,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     state,
     plan,
     cards,
+    initialLoading,
     connect,
     isConnected,
     address,

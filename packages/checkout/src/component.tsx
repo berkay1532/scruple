@@ -47,10 +47,11 @@ const BUSY_STEPS = new Set(["minting", "approving", "subscribing"]);
 export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: ScrupleCheckoutProps) {
   injectStylesOnce();
 
-  const { state, plan, cards, connect, isConnected, select, mintAndUse, payAndSubscribe, reset } = useCheckoutFlow({
-    planId,
-    addresses,
-  });
+  const { state, plan, cards, initialLoading, connect, isConnected, select, mintAndUse, payAndSubscribe, reset } =
+    useCheckoutFlow({
+      planId,
+      addresses,
+    });
 
   // Fire onSuccess/onError exactly once per entry into "done"/"error" — a
   // ref guard rather than relying on the parent not to re-render, since
@@ -95,9 +96,7 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
             <span className="sck-period">{days} days</span>
             {trialDays > 0 ? <p className="sck-trial">{trialDays}-day trial included</p> : null}
           </div>
-        ) : (
-          <p className="sck-loading-summary">Loading plan…</p>
-        )}
+        ) : null}
       </header>
 
       <div className="sck-body">
@@ -107,9 +106,22 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
           </button>
         ) : null}
 
-        {state.step === "loading" ? <p className="sck-status">Loading plan…</p> : null}
+        {/* Single atomic loading placeholder: shown for the entire initial
+            load (plan + nextCardId + the card/allowlist multicalls), not just
+            the reducer's "loading" step — the reducer advances to "pick" as
+            soon as the plan resolves, which can be before the card scan has
+            settled. Gating on `initialLoading` here (rather than
+            `state.step === "loading"`) is what prevents the pick UI from
+            ever rendering with a partial/all-ineligible card list. */}
+        {state.step !== "connect" && initialLoading ? (
+          <div className="sck-skeleton" role="status">
+            <p className="sck-status">Loading plan…</p>
+            <div className="sck-skeleton-row" aria-hidden="true" />
+            <div className="sck-skeleton-row" aria-hidden="true" />
+          </div>
+        ) : null}
 
-        {state.step === "pick" || busy ? (
+        {!initialLoading && (state.step === "pick" || busy) ? (
           <div className="sck-pick">
             <div className="sck-cards" role="radiogroup" aria-label="Your cards">
               {cards.length === 0 ? <p className="sck-empty">No eligible cards yet — mint one below.</p> : null}
@@ -207,9 +219,10 @@ const PANEL_CSS = `
 .sck-sep { color: #6A7180; }
 .sck-period { font-size: 14px; color: #9BA1AC; }
 .sck-trial { flex-basis: 100%; margin: 2px 0 0; font-size: 12.5px; color: #C9A96A; }
-.sck-loading-summary { margin: 0; color: #9BA1AC; font-size: 13px; }
 .sck-body { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
 .sck-status { margin: 0; color: #9BA1AC; font-size: 13px; }
+.sck-skeleton { display: flex; flex-direction: column; gap: 10px; }
+.sck-skeleton-row { height: 38px; border-radius: 9px; background: #1B212B; border: 1px solid #242B36; }
 .sck-pick { display: flex; flex-direction: column; gap: 10px; }
 .sck-cards { display: flex; flex-direction: column; gap: 6px; }
 .sck-empty { margin: 0; color: #6A7180; font-size: 12.5px; }
