@@ -165,7 +165,6 @@ export default function Page() {
               planId={PRO_PLAN_ID}
               onSuccess={({ subId: newSubId }) => {
                 setSubId(newSubId);
-                setModalOpen(false);
               }}
             />
           </div>
