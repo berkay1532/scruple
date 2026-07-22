@@ -4,10 +4,12 @@
 // Payments / Webhooks). Ports docs/design/dashboard-mock.html's markup,
 // classes, and copy 1:1 where the data is real; where the mock invents data
 // this app can't honestly produce (metered rate card pricing, plan version
-// history, webhook delivery status, subscriber nudge/reminder actions) the
-// section is trimmed rather than faked — see the Task 5 report for the full
-// list of deviations.
-import { useMemo, useState, type FormEvent } from "react";
+// history, subscriber nudge/reminder actions) the section is trimmed rather
+// than faked — see the Task 5 report for the full list of deviations. The
+// Webhooks screen is live against the service's /admin API (Phase 5b) via
+// the /api/admin proxy: endpoint CRUD + pause/resume + secret rotate, and a
+// deliveries table with Resend.
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useAccount } from "wagmi";
 import type { MerchantScreen } from "@/components/chrome";
 import { Badge, Drawer, Panel, useToast } from "@/components/ui";
@@ -23,8 +25,27 @@ import {
   scopeToMerchant,
   type EventRow,
 } from "@/lib/events";
-import { formatDate, formatUsd, parseUsdToAtomic, shortAddr, shortHash, timeAgo } from "@/lib/format";
+import {
+  formatDate,
+  formatUsd,
+  parseUsdToAtomic,
+  shortAddr,
+  shortEventId,
+  shortHash,
+  shortUrl,
+  timeAgo,
+} from "@/lib/format";
 import { useMerchant, type MerchantPlan, type MerchantSub } from "@/lib/use-merchant";
+import {
+  createEndpoint,
+  deleteEndpoint,
+  resendDelivery,
+  rotateEndpointSecret,
+  setEndpointPaused,
+  useAdmin,
+  type AdminDelivery,
+  type AdminEndpoint,
+} from "@/lib/use-admin";
 
 const DAY_MS = 24 * 60 * 60_000;
 const ARC_TX_URL = "https://testnet.arcscan.app/tx/";
@@ -573,7 +594,196 @@ function Payments({ events }: { events: EventRow[] }) {
 /* Webhooks                                                           */
 /* ================================================================ */
 
+const DELIVERY_FILTERS: { key: string; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "delivered", label: "Delivered" },
+  { key: "retrying", label: "Retrying" },
+  { key: "pending", label: "Pending" },
+  { key: "dead", label: "Dead" },
+];
+
+const DELIVERY_TONE: Record<AdminDelivery["status"], "ok" | "warn" | "bad" | "mut"> = {
+  delivered: "ok",
+  retrying: "warn",
+  pending: "mut",
+  dead: "bad",
+};
+
+type WebhookDrawerState =
+  | { kind: "add" }
+  | { kind: "secret"; heading: string; url: string; secret: string }
+  | null;
+
+function AddEndpointForm({
+  onCreated,
+}: {
+  onCreated: (created: { url: string; secret: string }) => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const trimmed = url.trim();
+    if (!/^https?:\/\/.+/.test(trimmed)) {
+      setError("Enter a full http(s):// URL.");
+      return;
+    }
+    setPending(true);
+    try {
+      const created = await createEndpoint(trimmed);
+      onCreated({ url: created.url, secret: created.secret });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Request failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <h2 className="serif">Add endpoint</h2>
+      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <span className="sub">Endpoint URL</span>
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://your.app/scruple/hooks"
+          inputMode="url"
+        />
+      </label>
+      <p className="empty-note">
+        Every event is HMAC-SHA256-signed (<code className="mono">scruple-signature</code> header) with a secret
+        generated on create, and retried at 1m → 5m → 30m → 2h → 12h before being marked dead.
+      </p>
+      {error && <p className="empty-note" style={{ color: "var(--bad)" }}>{error}</p>}
+      <button type="submit" className="btn primary" disabled={pending}>
+        {pending ? "Adding…" : "Add endpoint"}
+      </button>
+    </form>
+  );
+}
+
+// Reveal-once view for a freshly created/rotated signing secret. The secret
+// lives only in the parent's drawer state (cleared on close) — it is never
+// listed again by the API, so this is the merchant's one chance to copy it.
+function SecretReveal({
+  heading,
+  url,
+  secret,
+  onDone,
+}: {
+  heading: string;
+  url: string;
+  secret: string;
+  onDone: () => void;
+}) {
+  const toast = useToast();
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(secret);
+      toast("Secret copied");
+    } catch {
+      toast("Copy failed — select the secret and copy it manually.");
+    }
+  }
+
+  return (
+    <>
+      <h2 className="serif">{heading}</h2>
+      <div className="kv">
+        <div className="k">Endpoint</div>
+        <div className="mono">{shortUrl(url)}</div>
+        <div className="k">Signing secret</div>
+        <div>
+          <code
+            className="mono"
+            style={{
+              display: "block",
+              padding: "10px 12px",
+              background: "var(--surface2)",
+              border: "1px solid var(--line)",
+              borderRadius: 7,
+              wordBreak: "break-all",
+              userSelect: "all",
+            }}
+          >
+            {secret}
+          </code>
+        </div>
+      </div>
+      <p className="empty-note" style={{ color: "var(--warn)" }}>
+        Shown once — store it now. It is never displayed again; rotate the endpoint to get a new one.
+      </p>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn primary" onClick={copy}>
+          Copy secret
+        </button>
+        <button className="btn" onClick={onDone}>
+          Done
+        </button>
+      </div>
+    </>
+  );
+}
+
 function Webhooks() {
+  const toast = useToast();
+  const { endpoints, deliveries, error, refetch } = useAdmin();
+  const [drawer, setDrawer] = useState<WebhookDrawerState>(null);
+  const [filter, setFilter] = useState("all");
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const nowMs = Date.now();
+
+  // Delete is a two-click confirm; back out automatically if the second
+  // click doesn't come within a few seconds.
+  useEffect(() => {
+    if (confirmDelete === null) return;
+    const id = setTimeout(() => setConfirmDelete(null), 4000);
+    return () => clearTimeout(id);
+  }, [confirmDelete]);
+
+  async function run(action: () => Promise<unknown>, okMsg: string) {
+    setBusy(true);
+    try {
+      await action();
+      toast(okMsg);
+      await refetch();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Request failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRotate(ep: AdminEndpoint) {
+    setBusy(true);
+    try {
+      const res = await rotateEndpointSecret(ep.id);
+      setDrawer({ kind: "secret", heading: "Secret rotated", url: ep.url, secret: res.secret });
+      refetch();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Request failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleDelete(id: number) {
+    if (confirmDelete !== id) {
+      setConfirmDelete(id);
+      return;
+    }
+    setConfirmDelete(null);
+    run(() => deleteEndpoint(id), "Endpoint deleted");
+  }
+
+  const filtered = filter === "all" ? deliveries : deliveries.filter((d) => d.status === filter);
+
   return (
     <>
       <div>
@@ -582,19 +792,160 @@ function Webhooks() {
           Signed with <code className="mono">scruple-signature</code> · retried 1m→5m→30m→2h→12h
         </p>
       </div>
+
       <Panel>
         <div className="whk-head">
-          <h2 style={{ margin: 0 }}>Endpoint</h2>
+          <h2 style={{ margin: 0 }}>Endpoints</h2>
+          <button
+            className="btn primary small"
+            style={{ marginLeft: "auto" }}
+            onClick={() => setDrawer({ kind: "add" })}
+          >
+            Add endpoint
+          </button>
         </div>
-        <p className="empty-note">
-          The webhook endpoint is configured via the <code className="mono">WEBHOOK_URL</code> /{" "}
-          <code className="mono">WEBHOOK_SECRET</code> environment variables on the service — there&apos;s no
-          dashboard control or delivery inspector for it yet. Every delivery is HMAC-SHA256-signed
-          (<code className="mono">scruple-signature</code> header) and retried at 1m → 5m → 30m → 2h → 12h before
-          being marked dead. This panel intentionally shows no delivery table: the API doesn&apos;t expose delivery
-          status yet, and a live dashboard shouldn&apos;t fabricate one.
-        </p>
+        {error && (
+          <p className="empty-note" style={{ color: "var(--bad)", marginTop: 10 }}>
+            {error}
+          </p>
+        )}
+        {endpoints.length === 0 ? (
+          <p className="empty-note" style={{ marginTop: 10 }}>
+            Add your first endpoint — every payment and subscription event will be signed and delivered to it.
+          </p>
+        ) : (
+          <table style={{ marginTop: 14 }}>
+            <thead>
+              <tr>
+                <th>Endpoint</th>
+                <th>Secret</th>
+                <th>Status</th>
+                <th className="num"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {endpoints.map((ep) => (
+                <tr key={ep.id}>
+                  <td className="mono">{shortUrl(ep.url)}</td>
+                  <td className="mono">{ep.secretPreview}</td>
+                  <td>
+                    <Badge tone={ep.paused ? "mut" : "ok"}>{ep.paused ? "paused" : "active"}</Badge>
+                  </td>
+                  <td className="num">
+                    <span style={{ display: "inline-flex", gap: 8 }}>
+                      <button
+                        className="btn small"
+                        disabled={busy}
+                        onClick={() =>
+                          run(
+                            () => setEndpointPaused(ep.id, !ep.paused),
+                            ep.paused ? "Endpoint resumed" : "Endpoint paused",
+                          )
+                        }
+                      >
+                        {ep.paused ? "Resume" : "Pause"}
+                      </button>
+                      <button className="btn small" disabled={busy} onClick={() => handleRotate(ep)}>
+                        Rotate
+                      </button>
+                      <button
+                        className="btn small"
+                        disabled={busy}
+                        style={
+                          confirmDelete === ep.id
+                            ? { borderColor: "var(--bad)", color: "var(--bad)" }
+                            : undefined
+                        }
+                        onClick={() => handleDelete(ep.id)}
+                      >
+                        {confirmDelete === ep.id ? "Confirm delete" : "Delete"}
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </Panel>
+
+      <Panel>
+        <h2>Deliveries</h2>
+        <div className="chips" role="group" aria-label="Filter deliveries" style={{ marginTop: 10 }}>
+          {DELIVERY_FILTERS.map((f) => (
+            <button key={f.key} className="chip" aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {filtered.length === 0 ? (
+          <p className="empty-note" style={{ marginTop: 12 }}>
+            {deliveries.length === 0
+              ? "No deliveries yet — rows appear here as events fire on-chain."
+              : "No deliveries match this filter."}
+          </p>
+        ) : (
+          <table style={{ marginTop: 14 }}>
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Type</th>
+                <th>Endpoint</th>
+                <th className="num">Attempts</th>
+                <th className="num">HTTP</th>
+                <th>Next attempt</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((d) => (
+                <tr key={`${d.endpointId}:${d.eventId}`}>
+                  <td className="mono">{shortEventId(d.eventId)}</td>
+                  <td>{d.type}</td>
+                  <td className="mono">{shortUrl(d.url)}</td>
+                  <td className="num">{d.attempts}</td>
+                  <td className="num mono">{d.lastStatus ?? "—"}</td>
+                  <td>{d.nextAttemptAt !== null ? timeAgo(d.nextAttemptAt * 1000, nowMs) : "—"}</td>
+                  <td>
+                    <Badge tone={DELIVERY_TONE[d.status]}>{d.status}</Badge>
+                  </td>
+                  <td>
+                    {(d.status === "retrying" || d.status === "dead") && (
+                      <button
+                        className="btn small"
+                        disabled={busy}
+                        onClick={() => run(() => resendDelivery(d.endpointId, d.eventId), "Resend scheduled")}
+                      >
+                        Resend
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      <Drawer open={drawer !== null} onClose={() => setDrawer(null)}>
+        {drawer?.kind === "add" && (
+          <AddEndpointForm
+            onCreated={(created) => {
+              refetch();
+              setDrawer({ kind: "secret", heading: "Endpoint added", url: created.url, secret: created.secret });
+            }}
+          />
+        )}
+        {drawer?.kind === "secret" && (
+          <SecretReveal
+            heading={drawer.heading}
+            url={drawer.url}
+            secret={drawer.secret}
+            onDone={() => setDrawer(null)}
+          />
+        )}
+      </Drawer>
     </>
   );
 }

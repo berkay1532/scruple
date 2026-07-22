@@ -30,6 +30,26 @@ export function cosmeticCardNumber(cardId: string): string {
   return `5crp ${digits.slice(0, 4)} ${digits.slice(4, 8)} ${digits.slice(8, 12)}`;
 }
 
+/**
+ * Truncates a webhook delivery event id for table display. Chain-decoded ids
+ * are `${txHash}:${logIndex}` — keep the log-index suffix and shorten the
+ * hash (e.g. "0xca8f…:9"); short synthetic ids pass through untouched.
+ */
+export function shortEventId(id: string): string {
+  const i = id.lastIndexOf(":");
+  if (i > 0) {
+    const head = id.slice(0, i);
+    return head.length > 10 ? `${head.slice(0, 6)}…${id.slice(i)}` : id;
+  }
+  return id.length > 14 ? `${id.slice(0, 12)}…` : id;
+}
+
+/** Strips the http(s) scheme and truncates long webhook URLs for table display. */
+export function shortUrl(url: string): string {
+  const bare = url.replace(/^https?:\/\//, "");
+  return bare.length > 34 ? `${bare.slice(0, 33)}…` : bare;
+}
+
 /** Relative time copy: minutes/hours for recent timestamps, a short UTC date once more than a day has passed. */
 export function timeAgo(atMs: number, nowMs: number): string {
   const diffMs = Math.max(0, nowMs - atMs);

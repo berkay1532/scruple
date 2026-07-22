@@ -5,7 +5,9 @@ import {
   formatUsd,
   parseUsdToAtomic,
   shortAddr,
+  shortEventId,
   shortHash,
+  shortUrl,
   timeAgo,
 } from "../lib/format";
 
@@ -40,6 +42,22 @@ describe("shortAddr", () => {
 describe("shortHash", () => {
   it("truncates a tx hash to the first 6 and last 4 characters", () => {
     expect(shortHash("0xca8f000000000000000000000000000000a7ad")).toBe("0xca8f…a7ad");
+  });
+});
+
+describe("shortEventId", () => {
+  it("shortens the tx-hash half of a txHash:logIndex id but passes short synthetic ids through", () => {
+    expect(shortEventId("0xca8f7227b0d0c20c6c693e07bceac143b967227285f3b44f1d5e759b6d1ea7ad:9")).toBe("0xca8f…:9");
+    expect(shortEventId("metered:u-88a2")).toBe("metered:u-88a2");
+  });
+});
+
+describe("shortUrl", () => {
+  it("strips the scheme and truncates long URLs with an ellipsis", () => {
+    expect(shortUrl("https://short.dev/hooks")).toBe("short.dev/hooks");
+    expect(shortUrl("https://api.a-very-long-domain-name.example.com/scruple/webhooks")).toBe(
+      "api.a-very-long-domain-name.examp…",
+    );
   });
 });
 

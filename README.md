@@ -59,7 +59,7 @@ See `examples/` for a runnable merchant + agent pair on Arc testnet.
 `@scruple/service` — the off-chain backbone:
 
 - **Indexer** — chunked `getLogs` polling (Arc drops `eth_newFilter`), resumable cursor, deterministic event ids (`txHash:logIndex`).
-- **Webhooks** — HMAC-SHA256-signed deliveries (`scruple-signature`), idempotency id on every event, retries at 1m/5m/30m/2h/12h then dead-lettered. Fully manageable live via the service admin API: endpoint CRUD, pause/resume, secret rotate, and a deliveries inspector with Resend (revives dead deliveries, keeps the attempt counter).
+- **Webhooks** — HMAC-SHA256-signed deliveries (`scruple-signature`), idempotency id on every event, retries at 1m/5m/30m/2h/12h then dead-lettered. Fully manageable live via the service admin API: endpoint CRUD, pause/resume, secret rotate, and a deliveries inspector with Resend (revives dead deliveries, keeps the attempt counter) — all driven end-to-end from the dashboard's Webhooks screen.
 - **At-risk monitor** — emits `subscription.at_risk` *before* a renewal that would fail (insufficient balance or card policy), killing silent churn.
 - **Keeper** — calls the permissionless `charge()` for due subscriptions.
 
@@ -111,7 +111,9 @@ First live subscription charge (plan → card → subscribe → `charge()`, $1.0
 ## Dashboard (Phase 4b)
 
 `apps/dashboard` — a Next.js App Router dashboard for both sides of Scruple: merchants get
-live revenue, plans, subscriptions, payments, and webhook config; payers/agents get their
+live revenue, plans, subscriptions, payments, and full webhook management (endpoint CRUD,
+reveal-once signing secrets, pause/resume/rotate, and a deliveries inspector with Resend,
+all through the service's `/admin` API); payers/agents get their
 Cards (mint, freeze/unfreeze, cancel) and spend activity. It's a thin read/write layer —
 reads join the service's event feed (`GET /events`, proxied server-side so the bearer
 secret never reaches the browser) with live `viem`/`wagmi` chain reads against
@@ -129,13 +131,15 @@ SERVICE_URL=http://localhost:8787 SERVICE_EVENTS_SECRET=<INGEST_SECRET value> \
 |---|---|---|
 | `SERVICE_URL` | yes | Base URL of the `@scruple/service` instance backing this dashboard (its `GET /events` is proxied through `app/api/events`). |
 | `SERVICE_EVENTS_SECRET` | yes | Matches the service's `INGEST_SECRET` — sent as a bearer token to `GET /events`, server-side only. |
+| `SERVICE_ADMIN_SECRET` | no | Matches the service's `ADMIN_SECRET` — sent as a bearer token to `/admin/*` through the `app/api/admin` proxy (server-side only). Falls back to `SERVICE_EVENTS_SECRET` when unset. |
 | `ARC_RPC_URL` | no | Authenticated Arc RPC URL for chain reads, proxied server-side through `app/api/rpc` (defaults to `https://rpc.testnet.arc.network`) — any token in it never reaches the browser. |
 | `NEXT_PUBLIC_RPC_URL` | no | Browser-direct RPC override, requires a CORS-enabled endpoint (defaults to same-origin `/api/rpc`, which proxies to `ARC_RPC_URL`). |
 
-Honest-data note: a handful of the design mock's sections show data the live API doesn't
-expose yet (webhook delivery status, per-card allowlist address lists, declined-payment
-history) — those panels are trimmed to what's real rather than filled with fabricated
-rows; see `apps/dashboard/components/screens/*.tsx` for the specifics.
+Honest-data note: a couple of the design mock's sections show data the live API doesn't
+expose yet (per-card allowlist address lists, declined-payment history) — those panels
+are trimmed to what's real rather than filled with fabricated rows; see
+`apps/dashboard/components/screens/*.tsx` for the specifics. Webhook delivery status,
+formerly on this list, is now live on the Webhooks screen via the `/admin` API.
 
 _Screenshots land with the demo assets (Phase 4c)._
 
