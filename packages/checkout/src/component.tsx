@@ -8,8 +8,8 @@
 // its own dark-ink/brass identity regardless of the host page's theme or
 // stylesheet — see the plan's "self-contained panel surface" requirement.
 import { useEffect, useRef } from "react";
-import { formatUsd } from "./logic.js";
-import { useCheckoutFlow, type UseCheckoutFlowOptions } from "./use-checkout.js";
+import { formatUsd } from "./logic";
+import { useCheckoutFlow, type UseCheckoutFlowOptions } from "./use-checkout";
 
 export interface ScrupleCheckoutSuccess {
   subId: bigint;

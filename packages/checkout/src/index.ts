@@ -4,7 +4,7 @@ export {
   SUBSCRIPTION_MANAGER_ABI,
   CARD_ISSUER_ABI,
   USDC_ABI,
-} from "./config.js";
+} from "./config";
 
 export {
   formatUsd,
@@ -15,7 +15,7 @@ export {
   type Step,
   type CheckoutState,
   type CheckoutAction,
-} from "./logic.js";
+} from "./logic";
 
 export {
   useCheckoutFlow,
@@ -23,10 +23,10 @@ export {
   type UseCheckoutFlowReturn,
   type CheckoutPlan,
   type CheckoutCard,
-} from "./use-checkout.js";
+} from "./use-checkout";
 
 export {
   ScrupleCheckout,
   type ScrupleCheckoutProps,
   type ScrupleCheckoutSuccess,
-} from "./component.js";
+} from "./component";

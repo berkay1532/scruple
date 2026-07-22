@@ -16,14 +16,14 @@ import {
 import type { Hash } from "viem";
 import { injected } from "wagmi/connectors";
 import { BaseError, UserRejectedRequestError } from "viem";
-import { ARC_CHAIN_ID, CARD_ISSUER_ABI, DEFAULT_ADDRESSES, SUBSCRIPTION_MANAGER_ABI, USDC_ABI } from "./config.js";
+import { ARC_CHAIN_ID, CARD_ISSUER_ABI, DEFAULT_ADDRESSES, SUBSCRIPTION_MANAGER_ABI, USDC_ABI } from "./config";
 import {
   approveAmountFor,
   checkoutReducer,
   isCardEligible,
   type CandidateCard,
   type CheckoutState,
-} from "./logic.js";
+} from "./logic";
 
 /** Buyer card discovery scans backward from `nextCardId`, capped at this many
  * most-recent ids. There is no "cards by owner" enumeration on-chain (see
