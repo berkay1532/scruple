@@ -4,7 +4,7 @@
 // connected buyer's cards, then drives inline mint / approve / subscribe
 // writes through the `checkoutReducer` state machine (see logic.ts for the
 // transition table this hook must obey exactly).
-import { useEffect, useMemo, useReducer } from "react";
+import { useEffect, useMemo, useReducer, useRef } from "react";
 import {
   useAccount,
   useConnect,
@@ -13,6 +13,7 @@ import {
   useReadContracts,
   useWriteContract,
 } from "wagmi";
+import type { Hash } from "viem";
 import { injected } from "wagmi/connectors";
 import { BaseError, UserRejectedRequestError } from "viem";
 import { ARC_CHAIN_ID, CARD_ISSUER_ABI, DEFAULT_ADDRESSES, SUBSCRIPTION_MANAGER_ABI, USDC_ABI } from "./config.js";
@@ -51,6 +52,18 @@ function describeError(err: unknown): string {
   }
   if (err instanceof Error) return err.message;
   return "Something went wrong.";
+}
+
+type PublicClient = NonNullable<ReturnType<typeof usePublicClient>>;
+
+/** Waits for a transaction receipt and throws if it landed but reverted.
+ * `publicClient.waitForTransactionReceipt` only rejects on network/timeout
+ * errors — a mined-but-reverted transaction resolves normally with
+ * `receipt.status === "reverted"`, so callers must check status explicitly
+ * or a reverted transaction gets reported as a success. */
+async function awaitSuccess(publicClient: PublicClient, hash: Hash, what: string): Promise<void> {
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") throw new Error(`${what} transaction reverted on-chain.`);
 }
 
 export interface UseCheckoutFlowOptions {
@@ -96,6 +109,11 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
   const { connect: wagmiConnect } = useConnect();
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID });
+
+  // Guards mintAndUse/payAndSubscribe against a double-fire (e.g. a fast
+  // double-click on the CTA before React re-renders the disabled state):
+  // both handlers bail out immediately if a call is already in flight.
+  const busyRef = useRef(false);
 
   function connect() {
     // Plain injected connector for now — the EIP-6963 multi-wallet picker
@@ -237,6 +255,8 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
 
   async function mintAndUse(): Promise<void> {
     if (state.step !== "pick" || !plan || !address || !publicClient) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     dispatch({ type: "mintStart" });
     try {
       // Read nextCardId fresh, right before sending the mint, so the id we
@@ -255,15 +275,19 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
         args: [address, addresses.usdc, plan.amount, plan.periodS, 0, [plan.merchant as `0x${string}`]],
         chainId: ARC_CHAIN_ID,
       });
-      await publicClient.waitForTransactionReceipt({ hash });
+      await awaitSuccess(publicClient, hash, "Card mint");
       dispatch({ type: "mintDone", cardId: freshCardId });
     } catch (err) {
       dispatch({ type: "fail", message: describeError(err) });
+    } finally {
+      busyRef.current = false;
     }
   }
 
   async function payAndSubscribe(): Promise<void> {
     if (state.step !== "pick" || state.selectedCardId === undefined || !plan || !address || !publicClient) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     const cardId = state.selectedCardId;
     try {
       const allowance = await publicClient.readContract({
@@ -282,7 +306,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
           args: [addresses.subscriptionManager, required],
           chainId: ARC_CHAIN_ID,
         });
-        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        await awaitSuccess(publicClient, approveHash, "USDC approve");
         dispatch({ type: "approveDone" });
       }
 
@@ -304,10 +328,12 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
         args: [opts.planId, cardId],
         chainId: ARC_CHAIN_ID,
       });
-      await publicClient.waitForTransactionReceipt({ hash: subscribeHash });
+      await awaitSuccess(publicClient, subscribeHash, "Subscribe");
       dispatch({ type: "subscribeDone", subId });
     } catch (err) {
       dispatch({ type: "fail", message: describeError(err) });
+    } finally {
+      busyRef.current = false;
     }
   }
 
