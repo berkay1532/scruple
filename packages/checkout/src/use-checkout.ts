@@ -166,7 +166,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
   // --- Card scan: nextCardId, then getCard + allowlist(cardId, merchant)
   // multicall over the most-recent CARD_SCAN_LIMIT ids (see the constant's
   // doc-comment for the tradeoff), filtered down to cards this buyer owns.
-  const { data: nextCardId } = useReadContract({
+  const { data: nextCardId, refetch: refetchNextCardId } = useReadContract({
     address: addresses.cardIssuer,
     abi: CARD_ISSUER_ABI,
     functionName: "nextCardId",
@@ -210,14 +210,14 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     );
   }, [scanIds, plan, addresses.cardIssuer]);
 
-  const { data: cardResults } = useReadContracts({
+  const { data: cardResults, refetch: refetchCardResults } = useReadContracts({
     contracts: getCardContracts,
     allowFailure: true,
     chainId: ARC_CHAIN_ID,
     query: { enabled: getCardContracts.length > 0, retry: 2 },
   });
 
-  const { data: allowlistResults } = useReadContracts({
+  const { data: allowlistResults, refetch: refetchAllowlistResults } = useReadContracts({
     contracts: allowlistContracts,
     allowFailure: true,
     chainId: ARC_CHAIN_ID,
@@ -286,6 +286,19 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
         chainId: ARC_CHAIN_ID,
       });
       await awaitSuccess(publicClient, hash, "Card mint");
+      // The card-scan queries (nextCardId, getCard×N, allowlist×N) are all
+      // react-query reads with no reason to know a new card now exists on
+      // chain — without an explicit refetch here, the newly minted card
+      // never appears in `cards` until something else happens to invalidate
+      // the cache. Refetch all three so the mint shows up immediately;
+      // tolerate individual failures (a transient RPC hiccup here shouldn't
+      // fail the mint that already succeeded — the next natural refetch
+      // will catch up).
+      await Promise.all([
+        refetchNextCardId().catch(() => undefined),
+        refetchCardResults().catch(() => undefined),
+        refetchAllowlistResults().catch(() => undefined),
+      ]);
       dispatch({ type: "mintDone", cardId: freshCardId });
     } catch (err) {
       dispatch({ type: "fail", message: describeError(err) });

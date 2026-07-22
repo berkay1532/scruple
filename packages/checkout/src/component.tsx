@@ -130,7 +130,7 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
             </div>
 
             <button type="button" className="sck-btn sck-btn-ghost" onClick={mintAndUse} disabled={busy}>
-              or mint a new card for this plan
+              {cards.length === 0 ? "Mint a new card for this plan" : "or mint a new card for this plan"}
             </button>
 
             <button

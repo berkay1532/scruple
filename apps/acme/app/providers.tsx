@@ -2,8 +2,8 @@
 
 // Real wagmi + react-query providers, same ssr-safe pattern as
 // apps/dashboard/components/providers.tsx + lib/chain.ts, trimmed down and
-// inlined here since this demo only needs one chain and doesn't need a
-// server-side RPC proxy (see the rpcUrl comment below). The QueryClient is
+// inlined here since this demo only needs one chain (see the rpcUrl comment
+// below for the server-side RPC proxy this app does use). The QueryClient is
 // created once per component instance (lazy useState initializer) so a
 // fresh client is used per mount instead of leaking state across server
 // requests. wagmiConfig has `ssr: true` so wagmi itself renders a
@@ -16,14 +16,13 @@ import { defineChain } from "viem";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import { injected } from "wagmi/connectors";
 
-// Unlike the dashboard, this demo talks straight to the public Arc RPC
-// instead of proxying through a same-origin API route — a real production
-// embed host would likely add that proxy (see
-// apps/dashboard/app/api/rpc/route.ts) to dodge the public endpoint's rate
-// limiting, but that's dashboard-specific plumbing this example deliberately
-// skips to stay small. NEXT_PUBLIC_RPC_URL still overrides it for anyone
-// pointing at their own endpoint.
-const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL ?? "https://rpc.testnet.arc.network";
+// Default reads go through the same-origin /api/rpc proxy (see
+// app/api/rpc/route.ts), same as the dashboard's lib/chain.ts: the public
+// Arc RPC rate-limits the burst of parallel reads a checkout mount fires on
+// load, which otherwise stalls the panel on "Loading plan…" and surfaces
+// "RPC Request failed". NEXT_PUBLIC_RPC_URL stays supported as an explicit
+// override for anyone pointing at their own CORS-enabled RPC.
+const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL ?? "/api/rpc";
 
 const arcTestnet = defineChain({
   id: 5042002,

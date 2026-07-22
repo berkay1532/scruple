@@ -46,7 +46,7 @@ describe("ScrupleCheckout — connect step", () => {
 });
 
 describe("ScrupleCheckout — pick step", () => {
-  it("renders the plan summary, eligible/ineligible card rows, and a mint button", () => {
+  it("renders the plan summary, eligible/ineligible card rows, and the 'or mint' button when cards exist", () => {
     useCheckoutFlow.mockReturnValue(
       baseHookReturn({
         state: { step: "pick" },
@@ -72,7 +72,25 @@ describe("ScrupleCheckout — pick step", () => {
     expect(ineligibleRow.disabled).toBe(true);
     expect(container.textContent).toContain("not eligible for this plan");
 
-    expect(screen.getByRole("button", { name: /mint a new card/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /or mint a new card for this plan/i })).toBeTruthy();
+  });
+
+  it("renders the empty-cards helper text and the standalone mint button when there are no cards yet", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "pick" },
+        plan: { amount: 29_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        cards: [],
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(container.textContent).toContain("No eligible cards yet — mint one below.");
+    expect(screen.getByRole("button", { name: /^Mint a new card for this plan$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^or mint a new card for this plan$/i })).toBeNull();
   });
 });
 
