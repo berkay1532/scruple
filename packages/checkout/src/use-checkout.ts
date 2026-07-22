@@ -94,6 +94,7 @@ export interface UseCheckoutFlowReturn {
   select(cardId: bigint): void;
   mintAndUse(): Promise<void>;
   payAndSubscribe(): Promise<void>;
+  reset(): void;
 }
 
 export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowReturn {
@@ -253,6 +254,15 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     dispatch({ type: "select", cardId });
   }
 
+  /** Recovers from the error step (e.g. a "Retry" button in the UI): clears
+   * the error/selection and returns to "pick" without re-fetching the plan
+   * or the card scan (both are already cached by react-query). Valid from
+   * any step per the reducer's transition table, but the component only
+   * needs it from "error". */
+  function reset() {
+    dispatch({ type: "reset" });
+  }
+
   async function mintAndUse(): Promise<void> {
     if (state.step !== "pick" || !plan || !address || !publicClient) return;
     if (busyRef.current) return;
@@ -347,5 +357,6 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     select,
     mintAndUse,
     payAndSubscribe,
+    reset,
   };
 }

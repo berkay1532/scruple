@@ -24,3 +24,9 @@ export {
   type CheckoutPlan,
   type CheckoutCard,
 } from "./use-checkout.js";
+
+export {
+  ScrupleCheckout,
+  type ScrupleCheckoutProps,
+  type ScrupleCheckoutSuccess,
+} from "./component.js";
