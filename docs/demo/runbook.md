@@ -6,10 +6,15 @@ pre-flight.
 
 ## 0. Golden rules (learned the hard way)
 
-1. **One RPC everywhere: the public Arc RPC** (`https://rpc.testnet.arc.network`).
-   The service, the dashboard proxy, AND MetaMask's Arc network entry must all
-   use it. Never mix providers: a stale third-party node once lagged ~93k blocks
-   and made every layer (reads, indexer, wallet nonces) lie in different ways.
+1. **RPC assignment (updated after the rate-limit findings):** server-side
+   proxies (`ARC_RPC_URL` for dashboard + acme, `RPC_URL` for the service) use
+   the **authenticated canteen RPC** (`arc-canteen rpc-url` — no rate limits,
+   batch-capable; token never reaches a browser). **MetaMask stays on the
+   public RPC** (`https://rpc.testnet.arc.network`). The public RPC rate-limits
+   PER BATCH ELEMENT, so it cannot back a busy proxy. CAVEAT: the canteen node
+   once lagged ~93k blocks and later went down entirely — hence rule 2 is
+   mandatory, and if it drifts, fall back to the public RPC and accept slower
+   loads (the proxy's queue/backoff absorbs it).
 2. **Pre-flight sync check** — two independent RPCs must agree on head:
    ```bash
    cast block-number --rpc-url https://rpc.testnet.arc.network
