@@ -59,7 +59,7 @@ See `examples/` for a runnable merchant + agent pair on Arc testnet.
 `@scruple/service` — the off-chain backbone:
 
 - **Indexer** — chunked `getLogs` polling (Arc drops `eth_newFilter`), resumable cursor, deterministic event ids (`txHash:logIndex`).
-- **Webhooks** — HMAC-SHA256-signed deliveries (`scruple-signature`), idempotency id on every event, retries at 1m/5m/30m/2h/12h then dead-lettered.
+- **Webhooks** — HMAC-SHA256-signed deliveries (`scruple-signature`), idempotency id on every event, retries at 1m/5m/30m/2h/12h then dead-lettered. Fully manageable live (5b): endpoint CRUD, pause/resume, secret rotate, and a deliveries inspector with Resend (revives dead deliveries, keeps the attempt counter) — via the admin API below or the dashboard's Webhooks screen.
 - **At-risk monitor** — emits `subscription.at_risk` *before* a renewal that would fail (insufficient balance or card policy), killing silent churn.
 - **Keeper** — calls the permissionless `charge()` for due subscriptions.
 
@@ -74,8 +74,15 @@ Full taxonomy is live: `payment.attempt_failed`/`payment.overdue` are detected b
 the keeper, and metered payments flow in as `settlement.batched` via the ingest API
 (`POST /ingest`, HMAC-signed — plug `createServiceForwarder` from `@scruple/server`
 into the middleware's `onPayment`). The dashboard reads `GET /events` (bearer auth).
-Enable with `INGEST_PORT`/`INGEST_SECRET`.
 Store is SQLite for the MVP (schema is Postgres-portable).
+
+Enable the HTTP surface with `INGEST_PORT`/`INGEST_SECRET`:
+
+| Env var | Required | Purpose |
+|---|---|---|
+| `INGEST_PORT` | to enable the HTTP surface | Port for `POST /ingest`, `GET /events`, and the `/admin/*` webhook-management API. |
+| `INGEST_SECRET` | yes, when `INGEST_PORT` is set | Bearer/HMAC secret for `/ingest` and `/events`; also the fallback for `/admin/*` auth when `ADMIN_SECRET` is unset. |
+| `ADMIN_SECRET` | no | Bearer secret for `/admin/*` (endpoint CRUD, pause/resume, rotate, deliveries, resend). Falls back to `INGEST_SECRET` when unset — set a dedicated value to scope down who can manage webhooks. Never logged. |
 
 ## Deploy (Arc testnet, chain 5042002)
 

@@ -109,7 +109,8 @@ let ingest: ReturnType<typeof createIngestServer> | null = null;
 if (process.env.INGEST_PORT) {
   const secret = process.env.INGEST_SECRET;
   if (!secret) throw new Error("INGEST_SECRET env var required when INGEST_PORT is set");
-  ingest = createIngestServer({ store, secret });
+  const adminSecret = process.env.ADMIN_SECRET ?? secret;
+  ingest = createIngestServer({ store, secret, adminSecret });
   ingest.listen(Number(process.env.INGEST_PORT), () => {
     console.log(`[scruple-service] ingest+events API on :${process.env.INGEST_PORT}`);
   });
@@ -131,7 +132,7 @@ async function tick() {
 }
 
 // Log only the RPC host — the URL may embed an auth token.
-console.log(`[scruple-service] starting — rpc=${new URL(RPC_URL).host} db=${DB_PATH} keeper=${keeper ? "on" : "off"} ingest=${process.env.INGEST_PORT ?? "off"}`);
+console.log(`[scruple-service] starting — rpc=${new URL(RPC_URL).host} db=${DB_PATH} keeper=${keeper ? "on" : "off"} ingest=${process.env.INGEST_PORT ?? "off"} admin=${ingest ? "on" : "off"}`);
 const loop = async () => {
   await tick();
   setTimeout(loop, POLL_INTERVAL_MS);
