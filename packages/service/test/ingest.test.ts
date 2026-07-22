@@ -119,6 +119,7 @@ describe("ingest server", () => {
         () => fetch(`${base}/admin/endpoints/1/rotate`, { method: "POST" }),
         () => fetch(`${base}/admin/deliveries`),
         () => fetch(`${base}/admin/deliveries/1/e1/resend`, { method: "POST" }),
+        () => fetch(`${base}/admin/nudge/1`, { method: "POST" }),
       ];
       for (const attempt of attempts) {
         const res = await attempt();
@@ -253,6 +254,64 @@ describe("ingest server", () => {
 
       const missing = await admin(`/admin/deliveries/${epId}/no-such-event/resend`, { method: "POST" })(base);
       expect(missing.status).toBe(404);
+    });
+
+    describe("nudge", () => {
+      it("401s without a bearer admin secret", async () => {
+        const res = await fetch(`${base}/admin/nudge/7`, { method: "POST" });
+        expect(res.status).toBe(401);
+      });
+
+      it("404s with 'nothing to nudge' when the sub has no attention events", async () => {
+        const res = await admin("/admin/nudge/42", { method: "POST" })(base);
+        expect(res.status).toBe(404);
+        expect(await res.json()).toEqual({ error: "nothing to nudge" });
+      });
+
+      it("happy path: emits nudge.requested, stored with the derived id, and enqueues a delivery", async () => {
+        const epId = store.createEndpoint("https://example.test/nudge", "test-secret-nudge-fixture");
+        store.insertEvent({
+          id: "atrisk:7:100",
+          type: "subscription.at_risk",
+          blockNumber: null,
+          payload: { subId: "7", reason: "insufficient_balance", nextChargeAt: "100" },
+          at: 1000,
+        });
+
+        const res = await admin("/admin/nudge/7", { method: "POST" })(base);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ ok: true, emitted: true });
+
+        const events = store.listRecentEvents({ type: "nudge.requested" });
+        expect(events).toHaveLength(1);
+        expect(events[0].id).toBe("nudge:7:100");
+        expect(events[0].payload).toEqual({ subId: "7", nextChargeAt: "100" });
+
+        const deliveries = store.listDeliveries().filter((d) => d.eventId === "nudge:7:100");
+        expect(deliveries).toHaveLength(1);
+        expect(deliveries[0].endpointId).toBe(epId);
+      });
+
+      it("second call for the same period is idempotent: emitted:false, no second delivery", async () => {
+        store.createEndpoint("https://example.test/nudge2", "test-secret-nudge2-fixture");
+        store.insertEvent({
+          id: "atrisk:7:100",
+          type: "subscription.at_risk",
+          blockNumber: null,
+          payload: { subId: "7", reason: "insufficient_balance", nextChargeAt: "100" },
+          at: 1000,
+        });
+
+        const first = await admin("/admin/nudge/7", { method: "POST" })(base);
+        expect(await first.json()).toEqual({ ok: true, emitted: true });
+
+        const second = await admin("/admin/nudge/7", { method: "POST" })(base);
+        expect(second.status).toBe(200);
+        expect(await second.json()).toEqual({ ok: true, emitted: false });
+
+        const deliveries = store.listDeliveries().filter((d) => d.eventId === "nudge:7:100");
+        expect(deliveries).toHaveLength(1);
+      });
     });
   });
 });

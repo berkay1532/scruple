@@ -242,6 +242,23 @@ export function createIngestServer(opts: { store: Store; secret: string; adminSe
           return ok ? json(res, 200, { ok: true }) : json(res, 404, { error: "not found" });
         }
 
+        const nudgeMatch = url.pathname.match(/^\/admin\/nudge\/([0-9]+)$/);
+        if (req.method === "POST" && nudgeMatch) {
+          const subId = nudgeMatch[1];
+          const period = store.latestAttentionPeriod(subId);
+          if (period === null) {
+            return json(res, 404, { error: "nothing to nudge" });
+          }
+          const emitted = store.insertEvent({
+            id: `nudge:${subId}:${period}`,
+            type: "nudge.requested",
+            blockNumber: null,
+            payload: { subId, nextChargeAt: period },
+            at: now(),
+          });
+          return json(res, 200, { ok: true, emitted });
+        }
+
         return json(res, 404, { error: "not found" });
       }
 
