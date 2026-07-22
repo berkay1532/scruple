@@ -16,3 +16,11 @@ export {
   type CheckoutState,
   type CheckoutAction,
 } from "./logic.js";
+
+export {
+  useCheckoutFlow,
+  type UseCheckoutFlowOptions,
+  type UseCheckoutFlowReturn,
+  type CheckoutPlan,
+  type CheckoutCard,
+} from "./use-checkout.js";

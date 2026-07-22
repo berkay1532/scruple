@@ -2,8 +2,10 @@
 // embed. Struct/tuple shapes copied verbatim from apps/dashboard/lib/abi.ts
 // (itself copied from contracts/src/CardIssuer.sol and
 // contracts/src/SubscriptionManager.sol) so the embed decodes chain state
-// identically to the dashboard. Adds `nextCardId`/`allowlist` read fragments
-// (buyer card discovery) that the dashboard's read-only ABI doesn't need.
+// identically to the dashboard. Adds `nextCardId`/`allowlist` (buyer card
+// discovery) and `nextSubId` (pre-read to learn a fresh subscription's id —
+// see use-checkout.ts) read fragments that the dashboard's read-only ABI
+// doesn't need.
 import { erc20Abi, parseAbi } from "viem";
 
 export const ARC_CHAIN_ID = 5042002;
@@ -20,6 +22,7 @@ export const SUBSCRIPTION_MANAGER_ABI = parseAbi([
   "function getPlan(uint256 planId) view returns (Plan memory)",
   "function getPlanVersion(uint256 planId, uint16 version) view returns (PlanVersion memory)",
   "function subscribe(uint256 planId, uint256 cardId) returns (uint256 subId)",
+  "function nextSubId() view returns (uint256)",
 ]);
 
 export const CARD_ISSUER_ABI = parseAbi([
