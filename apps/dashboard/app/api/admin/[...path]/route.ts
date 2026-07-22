@@ -25,6 +25,16 @@ async function forward(request: Request, ctx: Ctx, method: "GET" | "POST" | "DEL
   const { path } = await ctx.params;
   const search = new URL(request.url).search;
 
+  // Next percent-decodes catch-all segments before we see them, so a segment
+  // of "." or ".." (or one embedding "/", "?", or "#") could escape the
+  // /admin/ prefix via URL normalization, or inject a query/fragment
+  // boundary into the upstream URL. Reject those outright. Legitimate
+  // segments (including eventIds with colons) are unaffected and still
+  // forwarded raw below.
+  if (path.some((segment) => segment === "." || segment === ".." || /[/?#]/.test(segment))) {
+    return NextResponse.json({ error: "bad path" }, { status: 400 });
+  }
+
   const headers: Record<string, string> = { authorization: `Bearer ${secret}` };
   const init: RequestInit = { method, headers };
   if (method === "POST") {

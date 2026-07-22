@@ -9,6 +9,7 @@ import {
   shortHash,
   shortUrl,
   timeAgo,
+  timeUntil,
 } from "../lib/format";
 
 describe("formatUsd", () => {
@@ -86,6 +87,23 @@ describe("timeAgo", () => {
     const at = Date.UTC(2026, 6, 20, 9, 0, 0);
     const now = at + 5 * 24 * 60 * 60_000;
     expect(timeAgo(at, now)).toBe("Jul 20");
+  });
+});
+
+describe("timeUntil", () => {
+  it("renders minutes-until for a near-future timestamp", () => {
+    const now = Date.UTC(2026, 6, 20, 12, 0, 0);
+    expect(timeUntil(now + 5 * 60_000, now)).toBe("in 5m");
+  });
+
+  it("renders hours-until for a same-day future timestamp", () => {
+    const now = Date.UTC(2026, 6, 20, 12, 0, 0);
+    expect(timeUntil(now + 2 * 60 * 60_000, now)).toBe("in 2h");
+  });
+
+  it("falls back to timeAgo for a past timestamp", () => {
+    const now = Date.UTC(2026, 6, 20, 12, 0, 0);
+    expect(timeUntil(now - 2 * 60_000, now)).toBe(timeAgo(now - 2 * 60_000, now));
   });
 });
 

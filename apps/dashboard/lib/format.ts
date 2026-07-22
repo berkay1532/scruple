@@ -62,6 +62,24 @@ export function timeAgo(atMs: number, nowMs: number): string {
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
+/**
+ * Like `timeAgo`, but for timestamps that may be in the future (e.g. a
+ * scheduled webhook retry): renders "in Xm" / "in Xh" instead of clamping to
+ * "just now". Past timestamps fall back to `timeAgo` unchanged — this does
+ * not alter `timeAgo`'s behavior for any other caller.
+ */
+export function timeUntil(atMs: number, nowMs: number): string {
+  const diffMs = atMs - nowMs;
+  if (diffMs <= 0) return timeAgo(atMs, nowMs);
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "in <1m";
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `in ${hours}h`;
+  const d = new Date(atMs);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
 /** Formats a unix-seconds timestamp as a full UTC date, e.g. "Aug 19, 2026". */
 export function formatDate(atS: number): string {
   const d = new Date(atS * 1000);

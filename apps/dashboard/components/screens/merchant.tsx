@@ -5,7 +5,7 @@
 // classes, and copy 1:1 where the data is real; where the mock invents data
 // this app can't honestly produce (metered rate card pricing, plan version
 // history, subscriber nudge/reminder actions) the section is trimmed rather
-// than faked — see the Task 5 report for the full list of deviations. The
+// than faked — see the phase report for the full list of deviations. The
 // Webhooks screen is live against the service's /admin API (Phase 5b) via
 // the /api/admin proxy: endpoint CRUD + pause/resume + secret rotate, and a
 // deliveries table with Resend.
@@ -34,6 +34,7 @@ import {
   shortHash,
   shortUrl,
   timeAgo,
+  timeUntil,
 } from "@/lib/format";
 import { useMerchant, type MerchantPlan, type MerchantSub } from "@/lib/use-merchant";
 import {
@@ -878,12 +879,19 @@ function Webhooks() {
             </button>
           ))}
         </div>
-        {filtered.length === 0 ? (
-          <p className="empty-note" style={{ marginTop: 12 }}>
-            {deliveries.length === 0
-              ? "No deliveries yet — rows appear here as events fire on-chain."
-              : "No deliveries match this filter."}
+        {error && (
+          <p className="empty-note" style={{ color: "var(--bad)", marginTop: 10 }}>
+            {error}
           </p>
+        )}
+        {filtered.length === 0 ? (
+          !error && (
+            <p className="empty-note" style={{ marginTop: 12 }}>
+              {deliveries.length === 0
+                ? "No deliveries yet — rows appear here as events fire on-chain."
+                : "No deliveries match this filter."}
+            </p>
+          )
         ) : (
           <table style={{ marginTop: 14 }}>
             <thead>
@@ -906,7 +914,7 @@ function Webhooks() {
                   <td className="mono">{shortUrl(d.url)}</td>
                   <td className="num">{d.attempts}</td>
                   <td className="num mono">{d.lastStatus ?? "—"}</td>
-                  <td>{d.nextAttemptAt !== null ? timeAgo(d.nextAttemptAt * 1000, nowMs) : "—"}</td>
+                  <td>{d.nextAttemptAt !== null ? timeUntil(d.nextAttemptAt * 1000, nowMs) : "—"}</td>
                   <td>
                     <Badge tone={DELIVERY_TONE[d.status]}>{d.status}</Badge>
                   </td>
