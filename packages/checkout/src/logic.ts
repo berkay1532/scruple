@@ -38,6 +38,105 @@ export function isCardEligible(c: CandidateCard, planAmount: bigint): boolean {
   );
 }
 
+/** The subset of a `getCard(cardId)` return value that eligibility/labeling
+ * needs. Deliberately narrower than the full `Card` struct (no owner/signer/
+ * etc.) — owner-based filtering is a separate concern the caller (the hook)
+ * still owns; see use-checkout.ts's `cards` memo. */
+export interface CardResultData {
+  state: number;
+  periodAmount: bigint;
+  useAllowlist: boolean;
+}
+
+/** Mirrors wagmi/viem's `useReadContracts({ allowFailure: true })` per-call
+ * result shape: every element is tagged success/failure rather than the call
+ * throwing, so a single bad `cardId` can't take down the whole multicall
+ * response — but it also means array *shape* (length, order, per-slot
+ * status) is the only signal callers get for "did this align with what I
+ * asked for", which is exactly what `assembleCards` exists to check. */
+export type MulticallResult<T> = { status: "success"; result: T } | { status: "failure"; error?: unknown };
+
+export interface AssembledCard {
+  cardId: bigint;
+  label: string;
+  eligible: boolean;
+}
+
+export interface AssembledCards {
+  /** False if the three inputs can't be safely zipped by index (missing
+   * array, length mismatch, or any per-element read failure) — in which
+   * case `cards` is always `[]`, never a partial/best-effort list. */
+  ready: boolean;
+  cards: AssembledCard[];
+}
+
+/**
+ * Pure card-list assembly: zips a buyer's scanned candidate ids against the
+ * two positionally-parallel multicall result arrays (`getCard` and
+ * `allowlist(cardId, merchant)`, both built from the same `scanIds` in the
+ * same order) into a labeled, eligibility-flagged list.
+ *
+ * This is deliberately paranoid about alignment because the three chain
+ * reads it draws from (`nextCardId` → derived `scanIds` → the two
+ * multicalls) are three independent react-query caches that can settle,
+ * refetch, and re-key on their own schedules (see use-checkout.ts's
+ * post-mint refetch comment) — a length or ordering mismatch between them
+ * must never get silently zipped by index into a wrong-card/wrong-flag
+ * result. So:
+ *   - `scanIds.length === 0` short-circuits to `{ready: true, cards: []}` —
+ *     there is nothing to wait for or misalign.
+ *   - otherwise, if either result array is missing or its length doesn't
+ *     exactly match `scanIds.length`, the whole assembly is rejected
+ *     (`ready: false, cards: []`) rather than zipping the overlapping
+ *     prefix.
+ *   - otherwise, if ANY element of either array isn't `status: "success"`,
+ *     the whole assembly is rejected too — atomicity beats a partial reveal
+ *     (simpler to reason about than per-card fallback states, and a single
+ *     flaky RPC call for one card shouldn't be allowed to mis-render a
+ *     sibling card just because the arrays "happen to" still be the right
+ *     length).
+ *
+ * Owner filtering is NOT done here — it's a separate, cheap pass the caller
+ * (use-checkout.ts's `cards` memo) applies to this function's output using
+ * the same `cardResults` array, gated on `ready` being true so that indexing
+ * it by position is safe.
+ */
+export function assembleCards(
+  scanIds: bigint[],
+  cardResults: MulticallResult<CardResultData>[] | undefined,
+  allowlistResults: MulticallResult<boolean>[] | undefined,
+  planAmount: bigint,
+): AssembledCards {
+  if (scanIds.length === 0) return { ready: true, cards: [] };
+  if (!cardResults || !allowlistResults) return { ready: false, cards: [] };
+  if (cardResults.length !== scanIds.length || allowlistResults.length !== scanIds.length) {
+    return { ready: false, cards: [] };
+  }
+
+  const cards: AssembledCard[] = [];
+  for (let i = 0; i < scanIds.length; i++) {
+    const cardResult = cardResults[i];
+    const allowlistResult = allowlistResults[i];
+    if (cardResult.status !== "success" || allowlistResult.status !== "success") {
+      return { ready: false, cards: [] };
+    }
+    const card = cardResult.result;
+    const candidate: CandidateCard = {
+      cardId: scanIds[i],
+      state: card.state,
+      periodAmount: card.periodAmount,
+      useAllowlist: card.useAllowlist,
+      merchantAllowed: allowlistResult.result,
+    };
+    cards.push({
+      cardId: scanIds[i],
+      label: `Card #${scanIds[i]}`,
+      eligible: isCardEligible(candidate, planAmount),
+    });
+  }
+  return { ready: true, cards };
+}
+
 export type Step =
   | "connect"
   | "loading"

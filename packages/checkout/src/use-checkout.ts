@@ -19,9 +19,8 @@ import { BaseError, UserRejectedRequestError } from "viem";
 import { ARC_CHAIN_ID, CARD_ISSUER_ABI, DEFAULT_ADDRESSES, SUBSCRIPTION_MANAGER_ABI, USDC_ABI } from "./config";
 import {
   approveAmountFor,
+  assembleCards,
   checkoutReducer,
-  isCardEligible,
-  type CandidateCard,
   type CheckoutState,
 } from "./logic";
 
@@ -227,22 +226,14 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     );
   }, [scanIds, plan, addresses.cardIssuer]);
 
-  const {
-    data: cardResults,
-    status: cardResultsStatus,
-    refetch: refetchCardResults,
-  } = useReadContracts({
+  const { data: cardResults, status: cardResultsStatus } = useReadContracts({
     contracts: getCardContracts,
     allowFailure: true,
     chainId: ARC_CHAIN_ID,
     query: { enabled: getCardContracts.length > 0, retry: 2 },
   });
 
-  const {
-    data: allowlistResults,
-    status: allowlistResultsStatus,
-    refetch: refetchAllowlistResults,
-  } = useReadContracts({
+  const { data: allowlistResults, status: allowlistResultsStatus } = useReadContracts({
     contracts: allowlistContracts,
     allowFailure: true,
     chainId: ARC_CHAIN_ID,
@@ -265,37 +256,39 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
       ? true
       : (cardResultsStatus === "success" || cardResultsStatus === "error") &&
         (allowlistResultsStatus === "success" || allowlistResultsStatus === "error");
-  const initialLoading = !(planSettled && nextCardIdSettled && cardScanSettled);
+
+  // assembleCards (logic.ts) is the single source of truth for "do
+  // scanIds/cardResults/allowlistResults line up by index" — it rejects
+  // (ready: false, cards: []) on any length mismatch or per-element read
+  // failure rather than zipping a partial/misaligned result. `initialLoading`
+  // folds `!assembled.ready` in below, so query-status settling alone is no
+  // longer sufficient to reveal cards — the assembly must also report ready.
+  const assembled = useMemo(
+    () => assembleCards(scanIds, cardResults, allowlistResults, plan?.amount ?? 0n),
+    [scanIds, cardResults, allowlistResults, plan],
+  );
+
+  const initialLoading = !(planSettled && nextCardIdSettled && cardScanSettled) || !assembled.ready;
 
   const cards = useMemo<CheckoutCard[]>(() => {
     // Never compute eligibility from a partial result set: until every
-    // initial-load read has settled, hold `cards` at `[]` rather than
-    // surfacing an interim list where every card looks ineligible because
-    // allowlistResults simply hasn't arrived yet.
-    if (initialLoading || !cardResults || !plan || !address) return [];
-    const out: CheckoutCard[] = [];
+    // initial-load read has settled AND assembleCards has confirmed the
+    // three arrays line up, hold `cards` at `[]` rather than surfacing an
+    // interim or misaligned list.
+    if (initialLoading || !plan || !address) return [];
+    // Owner filtering stays here (not in assembleCards, which has no notion
+    // of the connected address) — safe to index `cardResults` positionally
+    // because `initialLoading` being false implies `assembled.ready`, which
+    // in turn guarantees `cardResults.length === scanIds.length`.
+    const ownedCardIds = new Set<bigint>();
     for (let i = 0; i < scanIds.length; i++) {
-      const cardResult = cardResults[i];
-      if (!cardResult || cardResult.status !== "success") continue;
-      const card = cardResult.result;
-      if (card.owner.toLowerCase() !== address.toLowerCase()) continue;
-      const allowlistResult = allowlistResults?.[i];
-      const merchantAllowed = allowlistResult?.status === "success" ? allowlistResult.result : false;
-      const candidate: CandidateCard = {
-        cardId: scanIds[i],
-        state: card.state,
-        periodAmount: card.periodAmount,
-        useAllowlist: card.useAllowlist,
-        merchantAllowed,
-      };
-      out.push({
-        cardId: scanIds[i],
-        label: `Card #${scanIds[i]}`,
-        eligible: isCardEligible(candidate, plan.amount),
-      });
+      const cardResult = cardResults?.[i];
+      if (cardResult?.status === "success" && cardResult.result.owner.toLowerCase() === address.toLowerCase()) {
+        ownedCardIds.add(scanIds[i]);
+      }
     }
-    return out;
-  }, [initialLoading, cardResults, allowlistResults, scanIds, plan, address]);
+    return assembled.cards.filter((c) => ownedCardIds.has(c.cardId));
+  }, [initialLoading, assembled, cardResults, scanIds, plan, address]);
 
   function select(cardId: bigint) {
     dispatch({ type: "select", cardId });
@@ -333,19 +326,28 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
         chainId: ARC_CHAIN_ID,
       });
       await awaitSuccess(publicClient, hash, "Card mint");
-      // The card-scan queries (nextCardId, getCard×N, allowlist×N) are all
-      // react-query reads with no reason to know a new card now exists on
-      // chain — without an explicit refetch here, the newly minted card
-      // never appears in `cards` until something else happens to invalidate
-      // the cache. Refetch all three so the mint shows up immediately;
-      // tolerate individual failures (a transient RPC hiccup here shouldn't
-      // fail the mint that already succeeded — the next natural refetch
-      // will catch up).
-      await Promise.all([
-        refetchNextCardId().catch(() => undefined),
-        refetchCardResults().catch(() => undefined),
-        refetchAllowlistResults().catch(() => undefined),
-      ]);
+      // Only nextCardId needs an explicit refetch. getCardContracts and
+      // allowlistContracts are useMemos derived from `scanIds` (itself
+      // derived from `nextCardId`), so once the refetch below lands and
+      // scanIds grows to include the new card, both multicalls get a brand
+      // new `contracts` array — a new query key wagmi/react-query fetches
+      // automatically (`enabled: length > 0`, no manual refetch needed).
+      //
+      // The previous version of this fix instead force-refetched all three
+      // queries concurrently via Promise.all. That's the bug this replaces:
+      // refetchCardResults()/refetchAllowlistResults() were called in the
+      // same tick as refetchNextCardId(), i.e. *before* nextCardId's new
+      // value had propagated through a re-render — so those two calls just
+      // re-fetched the OLD (pre-mint) getCard/allowlist contracts arrays.
+      // scanIds (read fresh on the next render, once nextCardId updates)
+      // would then include the new card and shift every existing card's
+      // scan position by one, while cardResults/allowlistResults kept
+      // pointing at the old, now-differently-sized/ordered arrays — a
+      // length/order mismatch that `assembleCards` will now reject outright
+      // (ready: false) rather than let `cards` zip by index against it.
+      // Tolerate a transient refetch failure here: the mint itself already
+      // succeeded, and the next natural read will catch up.
+      await refetchNextCardId().catch(() => undefined);
       dispatch({ type: "mintDone", cardId: freshCardId });
     } catch (err) {
       dispatch({ type: "fail", message: describeError(err) });

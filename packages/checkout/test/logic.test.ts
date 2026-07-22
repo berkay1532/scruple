@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   approveAmountFor,
+  assembleCards,
   checkoutReducer,
   formatUsd,
   isCardEligible,
   type CandidateCard,
+  type CardResultData,
   type CheckoutState,
+  type MulticallResult,
 } from "../src/logic.js";
 
 describe("formatUsd", () => {
@@ -64,6 +67,93 @@ describe("isCardEligible", () => {
     expect(
       isCardEligible({ ...base, useAllowlist: true, merchantAllowed: false }, planAmount),
     ).toBe(false);
+  });
+});
+
+describe("assembleCards", () => {
+  const planAmount = 1_000_000n; // $1
+
+  function ok<T>(result: T): MulticallResult<T> {
+    return { status: "success", result };
+  }
+  function fail<T>(): MulticallResult<T> {
+    return { status: "failure", error: new Error("boom") };
+  }
+
+  const card0: CardResultData = { state: 0, periodAmount: 5_000_000n, useAllowlist: true }; // $5, allowlisted+allowed
+  const card1: CardResultData = { state: 0, periodAmount: 20_000n, useAllowlist: false }; // $0.02 < $1
+  const card2: CardResultData = { state: 0, periodAmount: 1_000_000n, useAllowlist: true }; // $1 == plan, allowlisted+allowed
+
+  it("assembles a fully aligned, all-success scan into correctly labeled/eligible cards", () => {
+    const scanIds = [0n, 1n, 2n];
+    const cardResults = [ok(card0), ok(card1), ok(card2)];
+    const allowlistResults = [ok(true), ok(false), ok(true)];
+
+    const result = assembleCards(scanIds, cardResults, allowlistResults, planAmount);
+
+    expect(result.ready).toBe(true);
+    expect(result.cards).toEqual([
+      { cardId: 0n, label: "Card #0", eligible: true },
+      { cardId: 1n, label: "Card #1", eligible: false },
+      { cardId: 2n, label: "Card #2", eligible: true },
+    ]);
+  });
+
+  it("rejects (ready: false, cards: []) when cardResults' length doesn't match scanIds", () => {
+    const scanIds = [0n, 1n, 2n];
+    const cardResults = [ok(card0), ok(card1)]; // missing the third — e.g. a stale, pre-mint array
+    const allowlistResults = [ok(true), ok(false), ok(true)];
+
+    const result = assembleCards(scanIds, cardResults, allowlistResults, planAmount);
+
+    expect(result).toEqual({ ready: false, cards: [] });
+  });
+
+  it("rejects (ready: false, cards: []) when allowlistResults' length doesn't match scanIds", () => {
+    const scanIds = [0n, 1n, 2n];
+    const cardResults = [ok(card0), ok(card1), ok(card2)];
+    const allowlistResults = [ok(true), ok(false)];
+
+    const result = assembleCards(scanIds, cardResults, allowlistResults, planAmount);
+
+    expect(result).toEqual({ ready: false, cards: [] });
+  });
+
+  it("rejects (ready: false, cards: []) when either result array is missing entirely", () => {
+    const scanIds = [0n, 1n, 2n];
+    const cardResults = [ok(card0), ok(card1), ok(card2)];
+
+    expect(assembleCards(scanIds, undefined, [ok(true), ok(false), ok(true)], planAmount)).toEqual({
+      ready: false,
+      cards: [],
+    });
+    expect(assembleCards(scanIds, cardResults, undefined, planAmount)).toEqual({ ready: false, cards: [] });
+  });
+
+  it("rejects (ready: false, cards: []) on a single per-element getCard failure, not just that element", () => {
+    const scanIds = [0n, 1n, 2n];
+    const cardResults = [ok(card0), fail<CardResultData>(), ok(card2)];
+    const allowlistResults = [ok(true), ok(false), ok(true)];
+
+    const result = assembleCards(scanIds, cardResults, allowlistResults, planAmount);
+
+    expect(result).toEqual({ ready: false, cards: [] });
+  });
+
+  it("rejects (ready: false, cards: []) on a single per-element allowlist failure", () => {
+    const scanIds = [0n, 1n, 2n];
+    const cardResults = [ok(card0), ok(card1), ok(card2)];
+    const allowlistResults = [ok(true), ok(false), fail<boolean>()];
+
+    const result = assembleCards(scanIds, cardResults, allowlistResults, planAmount);
+
+    expect(result).toEqual({ ready: false, cards: [] });
+  });
+
+  it("is ready with an empty card list when there are no scan ids to assemble", () => {
+    expect(assembleCards([], [], [], planAmount)).toEqual({ ready: true, cards: [] });
+    // Even with stray (undefined) result arrays — nothing to misalign against.
+    expect(assembleCards([], undefined, undefined, planAmount)).toEqual({ ready: true, cards: [] });
   });
 });
 
