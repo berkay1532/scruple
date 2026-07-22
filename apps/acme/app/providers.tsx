@@ -34,7 +34,13 @@ const arcTestnet = defineChain({
 const wagmiConfig = createConfig({
   chains: [arcTestnet],
   connectors: [injected()],
-  transports: { [arcTestnet.id]: http() },
+  // `batch: { wait: 16 }` collapses the burst of simultaneous reads a
+  // checkout mount fires on load (plan, nextCardId, the card/allowlist
+  // multicalls) into a single JSON-RPC batch request (a JSON array body)
+  // instead of one HTTP round trip per read — see lib/rpc-forwarder.ts /
+  // app/api/rpc/route.ts for the array-aware handling this requires on the
+  // proxy side.
+  transports: { [arcTestnet.id]: http(rpcUrl, { batch: { wait: 16 } }) },
   ssr: true,
 });
 

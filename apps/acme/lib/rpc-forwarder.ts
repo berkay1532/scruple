@@ -36,9 +36,9 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** True if a JSON-RPC error body carries the "request limit reached" code, or the transport-level status is 429. */
-function isRateLimited(status: number, parsed: unknown): boolean {
-  if (status === 429) return true;
+/** True if a single JSON-RPC response object carries the "request limit
+ * reached" error code. */
+function objectIsRateLimited(parsed: unknown): boolean {
   if (parsed && typeof parsed === "object" && "error" in parsed) {
     const err = (parsed as { error?: unknown }).error;
     if (err && typeof err === "object" && "code" in err) {
@@ -46,6 +46,22 @@ function isRateLimited(status: number, parsed: unknown): boolean {
     }
   }
   return false;
+}
+
+/** True if a JSON-RPC error body carries the "request limit reached" code,
+ * or the transport-level status is 429. Batch requests (wagmi/viem's
+ * `http(url, { batch })` transport) send a JSON array of requests and get
+ * back a JSON array of responses — the upstream can rate-limit just one
+ * element of the batch while the rest succeed, so an array response is
+ * treated as rate-limited when ANY element carries the -32011 code (a
+ * per-object `.error.code` check alone would silently miss this, since a
+ * top-level array has no `.error` of its own). */
+function isRateLimited(status: number, parsed: unknown): boolean {
+  if (status === 429) return true;
+  if (Array.isArray(parsed)) {
+    return parsed.some((item) => objectIsRateLimited(item));
+  }
+  return objectIsRateLimited(parsed);
 }
 
 export function createRpcForwarder(opts: RpcForwarderOptions): RpcForwarder {

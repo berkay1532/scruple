@@ -67,6 +67,30 @@ describe("ScrupleCheckout — initial loading", () => {
     expect(screen.queryByRole("button", { name: /connect/i })).toBeNull();
   });
 
+  it("keeps the header's plan summary out of the DOM while initialLoading is true, even once `plan` has resolved", () => {
+    // Regression test: `plan` can resolve (getPlan/getPlanVersion settle)
+    // before the card scan has settled, so `initialLoading` stays true for
+    // longer than `plan` being defined. The panel must be atomic — the
+    // header's amount/period/trial line must not leak ahead of the body's
+    // loading skeleton.
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "loading" },
+        plan: { amount: 1_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        cards: [],
+        initialLoading: true,
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(container.textContent).not.toContain("$1");
+    expect(container.textContent).not.toContain("30 days");
+    expect(screen.getAllByText("Loading plan…")).toHaveLength(1);
+  });
+
   it("does not show the loading placeholder once initialLoading is false and the plan has resolved, even if cards arrived earlier in the same tick", () => {
     useCheckoutFlow.mockReturnValue(
       baseHookReturn({

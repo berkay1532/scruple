@@ -72,6 +72,46 @@ describe("createRpcForwarder", () => {
     expect(clock.sleepLog).toContain(100);
   });
 
+  it("retries a batch (JSON array) response when any single element carries a -32011 error, and returns the eventual all-success batch", async () => {
+    // wagmi/viem's `http(url, { batch })` transport sends a JSON array of
+    // JSON-RPC requests and expects a JSON array of responses back. The
+    // upstream can rate-limit just one element of the batch while the rest
+    // succeed — the forwarder must still treat the whole response as
+    // rate-limited and retry, since a top-level array has no `.error` of
+    // its own for the old object-only check to find.
+    const batchRequestBody = JSON.stringify([
+      { jsonrpc: "2.0", id: 1, method: "eth_blockNumber" },
+      { jsonrpc: "2.0", id: 2, method: "eth_call" },
+    ]);
+    const partiallyRateLimitedBatch = JSON.stringify([
+      { jsonrpc: "2.0", id: 1, result: "0x1" },
+      { jsonrpc: "2.0", id: 2, error: { code: -32011, message: "request limit reached" } },
+    ]);
+    const allSuccessBatch = JSON.stringify([
+      { jsonrpc: "2.0", id: 1, result: "0x1" },
+      { jsonrpc: "2.0", id: 2, result: "0x2" },
+    ]);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, partiallyRateLimitedBatch))
+      .mockResolvedValueOnce(jsonResponse(200, allSuccessBatch));
+    const clock = fakeClock();
+    const forwarder = createRpcForwarder({
+      upstream: "https://example.invalid/rpc",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      minGapMs: 0,
+      backoffMs: 100,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    const result = await forwarder.forward(batchRequestBody);
+
+    expect(result).toEqual({ status: 200, body: allSuccessBatch });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(clock.sleepLog).toContain(100);
+  });
+
   it("gives up after maxAttempts and returns the last rate-limited body (status passthrough)", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(200, RATE_LIMITED_BODY));
     const clock = fakeClock();

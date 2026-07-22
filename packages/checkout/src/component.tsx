@@ -89,12 +89,26 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
           <span className="sck-glyph">⚖</span>
           <span className="sck-name">Scruple</span>
         </div>
-        {plan ? (
+        {/* Plan-derived markup (amount, period, trial) must stay behind the
+            same `initialLoading` gate as the body skeleton below — nothing
+            plan-shaped may render until the ENTIRE initial load has settled.
+            `plan` itself can resolve before `initialLoading` flips to false
+            (the card scan can still be in flight), so gating on `plan`
+            alone here would let the header leak ahead of the body's
+            skeleton. While loading, render a dim placeholder bar in the
+            plan line's place so the header's layout doesn't jump once the
+            real summary appears. */}
+        {!initialLoading && plan ? (
           <div className="sck-plan-summary">
             <span className="sck-amount">{formatUsd(plan.amount)}</span>
             <span className="sck-sep">/</span>
             <span className="sck-period">{days} days</span>
             {trialDays > 0 ? <p className="sck-trial">{trialDays}-day trial included</p> : null}
+          </div>
+        ) : null}
+        {initialLoading ? (
+          <div className="sck-plan-summary-skeleton" aria-hidden="true">
+            <div className="sck-skeleton-row sck-skeleton-row-sm" />
           </div>
         ) : null}
       </header>
@@ -219,10 +233,12 @@ const PANEL_CSS = `
 .sck-sep { color: #6A7180; }
 .sck-period { font-size: 14px; color: #9BA1AC; }
 .sck-trial { flex-basis: 100%; margin: 2px 0 0; font-size: 12.5px; color: #C9A96A; }
+.sck-plan-summary-skeleton { display: flex; flex-direction: column; }
 .sck-body { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
 .sck-status { margin: 0; color: #9BA1AC; font-size: 13px; }
 .sck-skeleton { display: flex; flex-direction: column; gap: 10px; }
 .sck-skeleton-row { height: 38px; border-radius: 9px; background: #1B212B; border: 1px solid #242B36; }
+.sck-skeleton-row-sm { height: 22px; width: 140px; }
 .sck-pick { display: flex; flex-direction: column; gap: 10px; }
 .sck-cards { display: flex; flex-direction: column; gap: 6px; }
 .sck-empty { margin: 0; color: #6A7180; font-size: 12.5px; }
