@@ -22,6 +22,8 @@ function baseHookReturn(overrides: Partial<UseCheckoutFlowReturn> = {}): UseChec
     plan: undefined,
     cards: [],
     initialLoading: false,
+    initialError: null,
+    retryInitial: vi.fn(),
     connect: vi.fn(),
     isConnected: false,
     address: undefined,
@@ -107,6 +109,51 @@ describe("ScrupleCheckout — initial loading", () => {
 
     expect(screen.queryAllByText("Loading plan…")).toHaveLength(0);
     expect(screen.getByRole("radiogroup")).toBeTruthy();
+  });
+});
+
+describe("ScrupleCheckout — initial load failure", () => {
+  it("renders the initialError message and a Retry button instead of the loading skeleton, and wires Retry to retryInitial()", () => {
+    const retryInitial = vi.fn();
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "loading" },
+        plan: undefined,
+        cards: [],
+        initialLoading: true,
+        initialError: "Couldn't load this plan. Check your connection and try again.",
+        retryInitial,
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    render(<ScrupleCheckout planId={1n} />);
+
+    expect(screen.getByText("Couldn't load this plan. Check your connection and try again.")).toBeTruthy();
+    expect(screen.queryByText("Loading plan…")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+    expect(retryInitial).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the plan-invalid message from initialError (I2) the same way as any other initial-load failure", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "loading" },
+        plan: undefined,
+        cards: [],
+        initialLoading: true,
+        initialError: "This plan doesn't exist or is no longer accepting subscribers.",
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    render(<ScrupleCheckout planId={1n} />);
+
+    expect(screen.getByText("This plan doesn't exist or is no longer accepting subscribers.")).toBeTruthy();
   });
 });
 

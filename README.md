@@ -132,6 +132,42 @@ rows; see `apps/dashboard/components/screens/*.tsx` for the specifics.
 
 _Screenshots land with the demo assets (Phase 4c)._
 
+## Checkout embed (Phase 5a)
+
+`@scruple/checkout` — a drop-in `<ScrupleCheckout/>` React panel a merchant embeds directly on
+their own pricing page to sell a Scruple subscription plan, no redirect and no iframe:
+
+```tsx
+import { ScrupleCheckout } from "@scruple/checkout";
+
+<ScrupleCheckout planId={1n} onSuccess={({ subId }) => activatePro(subId)} />
+```
+
+Peer dependencies: `react`, `wagmi`, `viem`, `@tanstack/react-query` — the host app brings its
+own versions of each, and must already have a `WagmiProvider` (and `QueryClientProvider`)
+mounted somewhere above wherever `<ScrupleCheckout/>` renders; the embed does not configure or
+wrap either itself.
+
+Run the Acme example — a fictional, foreign-branded pricing page with the embed live on its Pro
+tier (`apps/acme`):
+
+```bash
+NEXT_PUBLIC_ACME_PLAN_ID=0 ARC_RPC_URL=<rpc> npm run dev -w acme-demo   # → http://localhost:3002
+```
+
+Design notes: the embed is chain-only — every read (`getPlan`, `getPlanVersion`, card
+eligibility) goes straight to `CardIssuer`/`SubscriptionManager` on Arc through the host's own
+`wagmi` config, with no dependency on `@scruple/service` or any indexer. Buyer cards are
+discovered by scanning the 64 most-recently-minted card ids network-wide and filtering to the
+ones the connected wallet owns and can spend on this plan — there is no on-chain "cards by
+owner" enumeration to query instead, so this is a deliberate, documented testnet-scale
+tradeoff (see `CARD_SCAN_LIMIT` in `packages/checkout/src/use-checkout.ts`): a buyer whose
+eligible card is older than that window won't see it offered here and falls back to minting a
+fresh one. The one-time USDC allowance the panel requests before subscribing covers 12
+renewals up front (disclosed in-panel — "revoke anytime") so the buyer isn't re-prompted every
+billing period. Non-custodial throughout: funds move wallet-to-wallet on `subscribe()`/
+`charge()`, the embed never custodies buyer funds or keys.
+
 ## Docs
 
 - [Design doc](docs/superpowers/specs/2026-07-19-scruple-design.md) — full

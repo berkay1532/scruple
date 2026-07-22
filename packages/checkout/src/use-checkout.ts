@@ -15,7 +15,7 @@ import {
 } from "wagmi";
 import type { Hash } from "viem";
 import { injected } from "wagmi/connectors";
-import { BaseError, UserRejectedRequestError } from "viem";
+import { BaseError, UserRejectedRequestError, zeroAddress } from "viem";
 import { ARC_CHAIN_ID, CARD_ISSUER_ABI, DEFAULT_ADDRESSES, SUBSCRIPTION_MANAGER_ABI, USDC_ABI } from "./config";
 import {
   approveAmountFor,
@@ -94,6 +94,18 @@ export interface UseCheckoutFlowReturn {
    * interim list — the UI should render a single loading placeholder and
    * nothing else, never a staged reveal of cards flipping eligible. */
   initialLoading: boolean;
+  /** Non-null iff the initial load failed outright — a plan/card read errored
+   * after retries (see `query: { retry: 2 }` on each read above), or the
+   * plan resolved but is invalid (no such plan, or the merchant deactivated
+   * it — see I2's check on `planRaw` above). Always `null` while
+   * `initialLoading` is still legitimately in-flight-and-recoverable; once
+   * non-null it stays that way until `retryInitial()` is called and the
+   * underlying reads resolve differently. Distinct from `state.error`, which
+   * is only ever set by a failed mint/approve/subscribe write. */
+  initialError: string | null;
+  /** Re-runs every initial-load read; wired to the "Retry" button the
+   * component renders alongside `initialError`. */
+  retryInitial(): void;
   connect(): void;
   isConnected: boolean;
   address?: string;
@@ -137,7 +149,11 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
   // plan is known (the version number isn't available until the first read
   // resolves, so this can't be a single multicall — same two-step pattern as
   // apps/dashboard/lib/use-merchant.ts).
-  const { data: planRaw, status: planStatus } = useReadContract({
+  const {
+    data: planRaw,
+    status: planStatus,
+    refetch: refetchPlan,
+  } = useReadContract({
     address: addresses.subscriptionManager,
     abi: SUBSCRIPTION_MANAGER_ABI,
     functionName: "getPlan",
@@ -146,7 +162,11 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     query: { retry: 2 },
   });
 
-  const { data: versionRaw, status: versionStatus } = useReadContract({
+  const {
+    data: versionRaw,
+    status: versionStatus,
+    refetch: refetchVersion,
+  } = useReadContract({
     address: addresses.subscriptionManager,
     abi: SUBSCRIPTION_MANAGER_ABI,
     functionName: "getPlanVersion",
@@ -155,8 +175,17 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     query: { enabled: planRaw !== undefined, retry: 2 },
   });
 
+  // I2: a plan id with no real plan behind it (or one the merchant has since
+  // deactivated) decodes just fine rather than reverting — Solidity mappings
+  // default to a zeroed struct for any key that was never written — so this
+  // can't be caught by `planStatus` alone. Treating it as "no plan" here
+  // (rather than a plan whose merchant happens to be the zero address) keeps
+  // every downstream consumer (the `planLoaded` dispatch below, `cards`,
+  // mint/subscribe) from ever acting on it; `initialError` (below) is what
+  // actually surfaces this to the UI.
   const plan = useMemo<CheckoutPlan | undefined>(() => {
     if (!planRaw || !versionRaw) return undefined;
+    if (planRaw.merchant === zeroAddress || !planRaw.active) return undefined;
     return {
       amount: versionRaw.amount,
       periodS: Number(versionRaw.period),
@@ -226,14 +255,22 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     );
   }, [scanIds, plan, addresses.cardIssuer]);
 
-  const { data: cardResults, status: cardResultsStatus } = useReadContracts({
+  const {
+    data: cardResults,
+    status: cardResultsStatus,
+    refetch: refetchCardResults,
+  } = useReadContracts({
     contracts: getCardContracts,
     allowFailure: true,
     chainId: ARC_CHAIN_ID,
     query: { enabled: getCardContracts.length > 0, retry: 2 },
   });
 
-  const { data: allowlistResults, status: allowlistResultsStatus } = useReadContracts({
+  const {
+    data: allowlistResults,
+    status: allowlistResultsStatus,
+    refetch: refetchAllowlistResults,
+  } = useReadContracts({
     contracts: allowlistContracts,
     allowFailure: true,
     chainId: ARC_CHAIN_ID,
@@ -268,7 +305,49 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     [scanIds, cardResults, allowlistResults, plan],
   );
 
-  const initialLoading = !(planSettled && nextCardIdSettled && cardScanSettled) || !assembled.ready;
+  // I1: a human-readable reason the initial load can't proceed, distinct
+  // from `state.error` (which is only ever set by write-flow failures —
+  // mint/approve/subscribe — via the `fail` action). Checked in a fixed
+  // priority order: a failed plan read is reported before a failed card
+  // read, and a *resolved-but-invalid* plan (I2) is checked last since it
+  // requires `planRaw` to actually be present. Every status this reads
+  // (`error`) only occurs after react-query has exhausted the `retry: 2`
+  // configured on each query above, so this never fires on a merely
+  // in-flight or about-to-retry read.
+  const initialError = useMemo<string | null>(() => {
+    if (planStatus === "error" || versionStatus === "error") {
+      return "Couldn't load this plan. Check your connection and try again.";
+    }
+    if (nextCardIdStatus === "error" || cardResultsStatus === "error" || allowlistResultsStatus === "error") {
+      return "Couldn't load your cards. Check your connection and try again.";
+    }
+    if (planRaw && (planRaw.merchant === zeroAddress || !planRaw.active)) {
+      return "This plan doesn't exist or is no longer accepting subscribers.";
+    }
+    return null;
+  }, [planStatus, versionStatus, nextCardIdStatus, cardResultsStatus, allowlistResultsStatus, planRaw]);
+
+  // Folding `initialError` in here (rather than leaving it to the component)
+  // guarantees the invariant documented on `initialLoading` below still
+  // holds when the load has failed outright: `cards` stays `[]`, the plan
+  // summary stays hidden, and — critically for I2 — an invalid plan can
+  // settle every query involved (nothing ever errors) and still never flip
+  // `initialLoading` to false, since `plan` itself is undefined in that case
+  // and nothing downstream can genuinely be "ready".
+  const initialLoading = !(planSettled && nextCardIdSettled && cardScanSettled) || !assembled.ready || initialError !== null;
+
+  /** Re-runs every initial-load read after a failure (e.g. the "Retry"
+   * button the component renders alongside `initialError`). Safe to call
+   * even for reads that are currently disabled (e.g. the multicalls before
+   * `scanIds`/`plan` exist) — react-query no-ops a refetch on a disabled
+   * query rather than throwing. */
+  function retryInitial(): void {
+    void refetchPlan();
+    void refetchVersion();
+    void refetchNextCardId();
+    void refetchCardResults();
+    void refetchAllowlistResults();
+  }
 
   const cards = useMemo<CheckoutCard[]>(() => {
     // Never compute eligibility from a partial result set: until every
@@ -318,11 +397,16 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
         abi: CARD_ISSUER_ABI,
         functionName: "nextCardId",
       });
+      // I3: mint the card in this plan's actual settlement token, not a
+      // hardcoded USDC address — a plan can be denominated in any ERC-20.
+      // `addresses.usdc` is only a defensive fallback for the pathological
+      // case where the decoded plan token is somehow falsy.
+      const token = planRaw?.token ?? addresses.usdc;
       const hash = await writeContractAsync({
         address: addresses.cardIssuer,
         abi: CARD_ISSUER_ABI,
         functionName: "mintCard",
-        args: [address, addresses.usdc, plan.amount, plan.periodS, 0, [plan.merchant as `0x${string}`]],
+        args: [address, token, plan.amount, plan.periodS, 0, [plan.merchant as `0x${string}`]],
         chainId: ARC_CHAIN_ID,
       });
       await awaitSuccess(publicClient, hash, "Card mint");
@@ -361,9 +445,12 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     if (busyRef.current) return;
     busyRef.current = true;
     const cardId = state.selectedCardId;
+    // I3: check/raise allowance on this plan's actual token, not a
+    // hardcoded USDC address — see the matching comment in mintAndUse.
+    const token = planRaw?.token ?? addresses.usdc;
     try {
       const allowance = await publicClient.readContract({
-        address: addresses.usdc,
+        address: token,
         abi: USDC_ABI,
         functionName: "allowance",
         args: [address, addresses.subscriptionManager],
@@ -372,7 +459,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
       if (allowance < required) {
         dispatch({ type: "approveStart" });
         const approveHash = await writeContractAsync({
-          address: addresses.usdc,
+          address: token,
           abi: USDC_ABI,
           functionName: "approve",
           args: [addresses.subscriptionManager, required],
@@ -414,6 +501,8 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     plan,
     cards,
     initialLoading,
+    initialError,
+    retryInitial,
     connect,
     isConnected,
     address,

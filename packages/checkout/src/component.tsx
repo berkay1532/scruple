@@ -47,11 +47,23 @@ const BUSY_STEPS = new Set(["minting", "approving", "subscribing"]);
 export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: ScrupleCheckoutProps) {
   injectStylesOnce();
 
-  const { state, plan, cards, initialLoading, connect, isConnected, select, mintAndUse, payAndSubscribe, reset } =
-    useCheckoutFlow({
-      planId,
-      addresses,
-    });
+  const {
+    state,
+    plan,
+    cards,
+    initialLoading,
+    initialError,
+    retryInitial,
+    connect,
+    isConnected,
+    select,
+    mintAndUse,
+    payAndSubscribe,
+    reset,
+  } = useCheckoutFlow({
+    planId,
+    addresses,
+  });
 
   // Fire onSuccess/onError exactly once per entry into "done"/"error" — a
   // ref guard rather than relying on the parent not to re-render, since
@@ -126,13 +138,30 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
             soon as the plan resolves, which can be before the card scan has
             settled. Gating on `initialLoading` here (rather than
             `state.step === "loading"`) is what prevents the pick UI from
-            ever rendering with a partial/all-ineligible card list. */}
+            ever rendering with a partial/all-ineligible card list.
+            `initialError` (I1) preempts the skeleton with the same
+            message+Retry markup the write-flow error step uses below —
+            `initialLoading` stays true for as long as `initialError` is set
+            (see use-checkout.ts), so without this branch a failed initial
+            load would render the loading skeleton forever instead of ever
+            surfacing the failure. `retryInitial` re-runs the failed reads
+            rather than resetting any reducer state (there's no reducer step
+            to reset here — the failure never advanced past "connect"/"loading"). */}
         {state.step !== "connect" && initialLoading ? (
-          <div className="sck-skeleton" role="status">
-            <p className="sck-status">Loading plan…</p>
-            <div className="sck-skeleton-row" aria-hidden="true" />
-            <div className="sck-skeleton-row" aria-hidden="true" />
-          </div>
+          initialError ? (
+            <div className="sck-error">
+              <p>{initialError}</p>
+              <button type="button" className="sck-btn sck-btn-primary" onClick={retryInitial}>
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div className="sck-skeleton" role="status">
+              <p className="sck-status">Loading plan…</p>
+              <div className="sck-skeleton-row" aria-hidden="true" />
+              <div className="sck-skeleton-row" aria-hidden="true" />
+            </div>
+          )
         ) : null}
 
         {!initialLoading && (state.step === "pick" || busy) ? (
