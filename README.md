@@ -59,7 +59,7 @@ See `examples/` for a runnable merchant + agent pair on Arc testnet.
 `@scruple/service` — the off-chain backbone:
 
 - **Indexer** — chunked `getLogs` polling (Arc drops `eth_newFilter`), resumable cursor, deterministic event ids (`txHash:logIndex`).
-- **Webhooks** — HMAC-SHA256-signed deliveries (`scruple-signature`), idempotency id on every event, retries at 1m/5m/30m/2h/12h then dead-lettered. Fully manageable live (5b): endpoint CRUD, pause/resume, secret rotate, and a deliveries inspector with Resend (revives dead deliveries, keeps the attempt counter) — via the admin API below or the dashboard's Webhooks screen.
+- **Webhooks** — HMAC-SHA256-signed deliveries (`scruple-signature`), idempotency id on every event, retries at 1m/5m/30m/2h/12h then dead-lettered. Fully manageable live via the service admin API: endpoint CRUD, pause/resume, secret rotate, and a deliveries inspector with Resend (revives dead deliveries, keeps the attempt counter).
 - **At-risk monitor** — emits `subscription.at_risk` *before* a renewal that would fail (insufficient balance or card policy), killing silent churn.
 - **Keeper** — calls the permissionless `charge()` for due subscriptions.
 

@@ -132,7 +132,8 @@ async function tick() {
 }
 
 // Log only the RPC host — the URL may embed an auth token.
-console.log(`[scruple-service] starting — rpc=${new URL(RPC_URL).host} db=${DB_PATH} keeper=${keeper ? "on" : "off"} ingest=${process.env.INGEST_PORT ?? "off"} admin=${ingest ? "on" : "off"}`);
+const adminStatus = ingest ? (process.env.ADMIN_SECRET ? "dedicated" : "fallback") : "off";
+console.log(`[scruple-service] starting — rpc=${new URL(RPC_URL).host} db=${DB_PATH} keeper=${keeper ? "on" : "off"} ingest=${process.env.INGEST_PORT ?? "off"} admin=${adminStatus}`);
 const loop = async () => {
   await tick();
   setTimeout(loop, POLL_INTERVAL_MS);
