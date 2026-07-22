@@ -152,10 +152,10 @@ describe("ingest server", () => {
       const res = await admin("/admin/endpoints", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: "https://example.test/hook", secret: "whsec_customcustomcustom" }),
+        body: JSON.stringify({ url: "https://example.test/hook", secret: "custom-secret-fixture" }),
       })(base);
       const created = await res.json();
-      expect(created.secret).toBe("whsec_customcustomcustom");
+      expect(created.secret).toBe("custom-secret-fixture");
     });
 
     it("rejects endpoint creation with a non-http(s) or malformed url", async () => {
@@ -175,7 +175,7 @@ describe("ingest server", () => {
     });
 
     it("deletes an endpoint, 404 on repeat/unknown", async () => {
-      const id = store.createEndpoint("https://example.test/del", "whsec_deleteme00000000000000000000");
+      const id = store.createEndpoint("https://example.test/del", "test-secret-delete-fixture");
       const res = await admin(`/admin/endpoints/${id}`, { method: "DELETE" })(base);
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ ok: true });
@@ -188,7 +188,7 @@ describe("ingest server", () => {
     });
 
     it("pauses and resumes an endpoint", async () => {
-      const id = store.createEndpoint("https://example.test/pause", "whsec_pauseme000000000000000000000");
+      const id = store.createEndpoint("https://example.test/pause", "test-secret-pause-fixture");
 
       const pauseRes = await admin(`/admin/endpoints/${id}/pause`, { method: "POST" })(base);
       expect(pauseRes.status).toBe(200);
@@ -205,23 +205,23 @@ describe("ingest server", () => {
     });
 
     it("rotates an endpoint secret once, replacing the prior secret", async () => {
-      const id = store.createEndpoint("https://example.test/rotate", "whsec_original00000000000000000000");
+      const id = store.createEndpoint("https://example.test/rotate", "test-secret-original-fixture");
       const res = await admin(`/admin/endpoints/${id}/rotate`, { method: "POST" })(base);
       expect(res.status).toBe(200);
       const { ok, secret } = await res.json();
       expect(ok).toBe(true);
       expect(secret).toMatch(/^whsec_[0-9a-f]{32}$/);
-      expect(secret).not.toBe("whsec_original00000000000000000000");
+      expect(secret).not.toBe("test-secret-original-fixture");
 
       const preview = store.listEndpointsAdmin().find((e) => e.id === id)?.secretPreview;
-      expect(preview).not.toBe(`${"whsec_original00000000000000000000".slice(0, 8)}…${"whsec_original00000000000000000000".slice(-2)}`);
+      expect(preview).not.toBe(`${"test-secret-original-fixture".slice(0, 8)}…${"test-secret-original-fixture".slice(-2)}`);
 
       const missing = await admin(`/admin/endpoints/999999/rotate`, { method: "POST" })(base);
       expect(missing.status).toBe(404);
     });
 
     it("lists deliveries and filters by status", async () => {
-      const epId = store.createEndpoint("https://example.test/deliv", "whsec_delivme0000000000000000000000");
+      const epId = store.createEndpoint("https://example.test/deliv", "test-secret-deliveries-fixture");
       store.insertEvent({ id: "ev-delivered", type: "payment.succeeded", blockNumber: null, payload: {}, at: 10 });
       store.insertEvent({ id: "ev-dead", type: "payment.succeeded", blockNumber: null, payload: {}, at: 20 });
       store.markAttempt("ev-delivered", epId, { ok: true, status: 200, now: 100, nextAttemptAt: null });
@@ -239,7 +239,7 @@ describe("ingest server", () => {
     });
 
     it("resends a delivery, including an eventId that contains a colon", async () => {
-      const epId = store.createEndpoint("https://example.test/resend", "whsec_resendme00000000000000000000");
+      const epId = store.createEndpoint("https://example.test/resend", "test-secret-resend-fixture");
       store.insertEvent({ id: "0xdead:7", type: "payment.succeeded", blockNumber: null, payload: {}, at: 10 });
       store.markAttempt("0xdead:7", epId, { ok: false, status: 500, now: 100, nextAttemptAt: null });
       expect(store.listDeliveries({ status: "dead" }).some((d) => d.eventId === "0xdead:7")).toBe(true);

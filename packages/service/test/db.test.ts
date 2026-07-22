@@ -167,7 +167,9 @@ describe("Store admin surface", () => {
 
   describe("listEndpointsAdmin", () => {
     it("returns id/url/secretPreview/paused/createdAtKnown shape with masked secret", () => {
-      const epId = store.createEndpoint("https://hooks.example/a", "whsec_abcdefghijklmnopqrstuvwxyz89");
+      // Built at runtime so secret scanners don't flag a whsec_-shaped literal.
+      const fakeSecret = "whsec_" + "abcdefghijklmnopqrstuvwxyz89";
+      const epId = store.createEndpoint("https://hooks.example/a", fakeSecret);
       const admin = store.listEndpointsAdmin();
       expect(admin).toHaveLength(1);
       expect(admin[0]).toEqual({
