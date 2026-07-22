@@ -13,7 +13,10 @@ import { ScrupleCheckout } from "@scruple/checkout";
 // out of band for this demo. Defaults to "0" so the page still renders (and
 // builds) without any env configured; a real deployment points this at
 // whatever plan id the merchant actually created.
-const PRO_PLAN_ID = BigInt(process.env.NEXT_PUBLIC_ACME_PLAN_ID ?? "0");
+function parsePlanId(raw: string | undefined): bigint {
+  try { return BigInt(raw ?? "0"); } catch { return 0n; }
+}
+const PRO_PLAN_ID = parsePlanId(process.env.NEXT_PUBLIC_ACME_PLAN_ID);
 
 interface Tier {
   name: string;
