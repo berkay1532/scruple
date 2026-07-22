@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { timingSafeEqual } from "node:crypto";
-import type { Store } from "./db";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import type { DeliveryStatus, Store } from "./db";
 import { signBody } from "./webhooks";
 
 function safeEqual(a: string, b: string): boolean {
@@ -64,9 +64,44 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
-/** HTTP surface: POST /ingest (HMAC, metered payments) + GET /events (bearer, dashboard). */
-export function createIngestServer(opts: { store: Store; secret: string; now?: () => number }): Server {
-  const { store, secret } = opts;
+function genSecret(): string {
+  return `whsec_${randomBytes(16).toString("hex")}`;
+}
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+const DELIVERY_STATUSES: readonly DeliveryStatus[] = ["delivered", "retrying", "pending", "dead"];
+
+const DELIVERIES_RESEND_PREFIX = "/admin/deliveries/";
+const RESEND_SUFFIX = "/resend";
+
+/**
+ * `/admin/deliveries/:endpointId/:eventId/resend` — eventIds may contain `:` (e.g.
+ * `0xdead:7`) but never `/`, so split on the FIRST `/` after the prefix to get
+ * endpointId, and take the rest (minus the trailing `/resend`) as the raw eventId.
+ */
+function parseResendPath(pathname: string): { endpointId: number; eventId: string } | null {
+  if (!pathname.startsWith(DELIVERIES_RESEND_PREFIX) || !pathname.endsWith(RESEND_SUFFIX)) return null;
+  const rest = pathname.slice(DELIVERIES_RESEND_PREFIX.length, pathname.length - RESEND_SUFFIX.length);
+  const slashIdx = rest.indexOf("/");
+  if (slashIdx <= 0) return null;
+  const endpointIdStr = rest.slice(0, slashIdx);
+  const eventId = rest.slice(slashIdx + 1);
+  if (!/^\d+$/.test(endpointIdStr) || eventId.length === 0) return null;
+  return { endpointId: Number(endpointIdStr), eventId };
+}
+
+/** HTTP surface: POST /ingest (HMAC, metered payments) + GET /events (bearer, dashboard) + /admin/* (bearer adminSecret, endpoint/delivery management). */
+export function createIngestServer(opts: { store: Store; secret: string; adminSecret: string; now?: () => number }): Server {
+  const { store, secret, adminSecret } = opts;
+  const now = () => opts.now?.() ?? Date.now();
 
   return createServer(async (req, res) => {
     try {
@@ -134,6 +169,80 @@ export function createIngestServer(opts: { store: Store; secret: string; now?: (
           blockNumber: e.blockNumber === null ? null : e.blockNumber.toString(),
         }));
         return json(res, 200, { events });
+      }
+
+      if (url.pathname.startsWith("/admin/")) {
+        const auth = req.headers.authorization;
+        if (typeof auth !== "string" || !safeEqual(auth, `Bearer ${adminSecret}`)) {
+          return json(res, 401, { error: "unauthorized" });
+        }
+
+        if (req.method === "GET" && url.pathname === "/admin/endpoints") {
+          return json(res, 200, { endpoints: store.listEndpointsAdmin() });
+        }
+
+        if (req.method === "POST" && url.pathname === "/admin/endpoints") {
+          let bodyBuf: Buffer;
+          try {
+            bodyBuf = await readBody(req);
+          } catch (err) {
+            if (err instanceof BodyTooLargeError) {
+              return json(res, 413, { error: "body too large" }, { connection: "close" });
+            }
+            throw err;
+          }
+          let p: unknown;
+          try {
+            p = JSON.parse(bodyBuf.toString("utf8") || "{}");
+          } catch {
+            return json(res, 400, { error: "bad payload" });
+          }
+          if (p === null || typeof p !== "object" || Array.isArray(p)) {
+            return json(res, 400, { error: "bad payload" });
+          }
+          const body = p as Record<string, unknown>;
+          if (typeof body.url !== "string" || !isValidHttpUrl(body.url)) {
+            return json(res, 400, { error: "bad url" });
+          }
+          const secretVal = typeof body.secret === "string" && body.secret.length > 0 ? body.secret : genSecret();
+          const id = store.createEndpoint(body.url, secretVal);
+          return json(res, 200, { id, url: body.url, secret: secretVal });
+        }
+
+        const idMatch = url.pathname.match(/^\/admin\/endpoints\/(\d+)$/);
+        if (req.method === "DELETE" && idMatch) {
+          const ok = store.deleteEndpoint(Number(idMatch[1]));
+          return ok ? json(res, 200, { ok: true }) : json(res, 404, { error: "not found" });
+        }
+
+        const actionMatch = url.pathname.match(/^\/admin\/endpoints\/(\d+)\/(pause|resume|rotate)$/);
+        if (req.method === "POST" && actionMatch) {
+          const id = Number(actionMatch[1]);
+          const action = actionMatch[2];
+          if (action === "pause" || action === "resume") {
+            const ok = store.setEndpointPaused(id, action === "pause");
+            return ok ? json(res, 200, { ok: true, paused: action === "pause" }) : json(res, 404, { error: "not found" });
+          }
+          const newSecret = genSecret();
+          const ok = store.rotateEndpointSecret(id, newSecret);
+          return ok ? json(res, 200, { ok: true, secret: newSecret }) : json(res, 404, { error: "not found" });
+        }
+
+        if (req.method === "GET" && url.pathname === "/admin/deliveries") {
+          const limit = url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined;
+          const statusParam = url.searchParams.get("status");
+          const status =
+            statusParam && (DELIVERY_STATUSES as string[]).includes(statusParam) ? (statusParam as DeliveryStatus) : undefined;
+          return json(res, 200, { deliveries: store.listDeliveries({ limit, status }) });
+        }
+
+        const resend = req.method === "POST" ? parseResendPath(url.pathname) : null;
+        if (resend) {
+          const ok = store.reviveDelivery(resend.eventId, resend.endpointId, now());
+          return ok ? json(res, 200, { ok: true }) : json(res, 404, { error: "not found" });
+        }
+
+        return json(res, 404, { error: "not found" });
       }
 
       return json(res, 404, { error: "not found" });
