@@ -52,6 +52,7 @@ Prefer the CLI? Same thing in one `cast` command ($29.00 / 30 days, no trial —
 amounts are 6-decimal USDC units):
 
 ```bash
+export PRIVATE_KEY=<your funded Arc-testnet key>
 cast send 0x3d0b19b6B06E568A23AA916270008012Dca55795 \
   "createPlan(address,uint256,uint48,uint48)" \
   0x3600000000000000000000000000000000000000 29000000 2592000 0 \

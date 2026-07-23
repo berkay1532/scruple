@@ -32,7 +32,7 @@ directly to the merchant + treasury via `transferFrom`:
   architecture, including the SDKs, indexer, and dashboard planned for later
   phases.
 
-## Quickstart
+## Build & test the contracts
 
 ```bash
 git clone --recurse-submodules https://github.com/berkay1532/scruple.git
