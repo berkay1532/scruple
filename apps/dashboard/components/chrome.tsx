@@ -89,6 +89,23 @@ export function ConnectButton() {
     if (error) toast(error.message || "Connection failed.");
   }, [error, toast]);
 
+  // If wagmi's session-restore flips isReconnecting back on while the
+  // popover happens to be open (e.g. a second tab reconnected), drop it
+  // rather than let a stale picker silently reappear once restore finishes.
+  useEffect(() => {
+    if (isReconnecting) setPicking(false);
+  }, [isReconnecting]);
+
+  // Mirrors the Drawer's Escape-to-close pattern (components/ui.tsx).
+  useEffect(() => {
+    if (!picking) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setPicking(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [picking]);
+
   async function switchAccount() {
     const connector = activeConnector ?? connections[0]?.connector;
     try {
@@ -135,6 +152,8 @@ export function ConnectButton() {
         className="btn small"
         onClick={handleConnectClick}
         disabled={isPending || isReconnecting}
+        aria-haspopup="menu"
+        aria-expanded={picking}
       >
         {isPending ? "Connecting…" : "Connect"}
       </button>
@@ -146,7 +165,7 @@ export function ConnectButton() {
             aria-label="Close wallet picker"
             onClick={() => setPicking(false)}
           />
-          <div className="wallet-pop" role="menu">
+          <div className="wallet-pop" role="menu" aria-label="Choose a wallet">
             {choices.connectors.map((c) => (
               <button
                 key={c.id}
