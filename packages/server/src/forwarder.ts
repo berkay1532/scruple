@@ -16,9 +16,12 @@ export function createServiceForwarder(opts: {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
   return async (e: PaymentEvent) => {
-    const body = JSON.stringify({ ...e, atomic: e.atomic.toString() });
-    const signature = createHmac("sha256", opts.secret).update(body).digest("hex");
+    // Serialization/signing sit inside the try too: callers fire-and-forget
+    // (`void forward(e)`), so a sync throw here would surface as an
+    // unhandled rejection instead of a logged failure.
     try {
+      const body = JSON.stringify({ ...e, atomic: e.atomic.toString() });
+      const signature = createHmac("sha256", opts.secret).update(body).digest("hex");
       const res = await fetchImpl(opts.url, {
         method: "POST",
         headers: { "content-type": "application/json", "scruple-signature": `sha256=${signature}` },
