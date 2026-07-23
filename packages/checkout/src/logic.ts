@@ -137,6 +137,34 @@ export function assembleCards(
   return { ready: true, cards };
 }
 
+/** SubscriptionManager.SubState.Active — see contracts/src/SubscriptionManager.sol. */
+const SUB_STATE_ACTIVE = 0;
+
+/** The subset of a `getSubscription(subId)` return value (plus the scanned
+ * id itself) that duplicate-subscription detection needs. */
+export interface CandidateSub {
+  subId: bigint;
+  customer: string;
+  planId: bigint;
+  state: number;
+}
+
+/**
+ * Filters a batch of scanned subscriptions down to the ones that already put
+ * this exact (connected address, plan) pair on-chain as Active — i.e. ones
+ * where subscribing again would create a genuine second, separately-charged
+ * subscription rather than merely resembling one. Address comparison is
+ * case-insensitive: `getSubscription` decodes `customer` as EIP-55
+ * checksummed, but the connected wagmi account address isn't guaranteed to
+ * match that casing.
+ */
+export function findExistingSubs(subs: CandidateSub[], address: string, planId: bigint): bigint[] {
+  const normalized = address.toLowerCase();
+  return subs
+    .filter((s) => s.customer.toLowerCase() === normalized && s.planId === planId && s.state === SUB_STATE_ACTIVE)
+    .map((s) => s.subId);
+}
+
 export type Step =
   | "connect"
   | "loading"

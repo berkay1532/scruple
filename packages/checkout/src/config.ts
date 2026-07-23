@@ -23,6 +23,7 @@ export const SUBSCRIPTION_MANAGER_ABI = parseAbi([
   "function getPlanVersion(uint256 planId, uint16 version) view returns (PlanVersion memory)",
   "function subscribe(uint256 planId, uint256 cardId) returns (uint256 subId)",
   "function nextSubId() view returns (uint256)",
+  "function getSubscription(uint256) view returns ((address customer, uint256 planId, uint16 planVersion, uint256 cardId, uint48 nextChargeAt, uint8 state))",
 ]);
 
 export const CARD_ISSUER_ABI = parseAbi([

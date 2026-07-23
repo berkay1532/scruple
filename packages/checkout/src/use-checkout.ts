@@ -4,7 +4,7 @@
 // connected buyer's cards, then drives inline mint / approve / subscribe
 // writes through the `checkoutReducer` state machine (see logic.ts for the
 // transition table this hook must obey exactly).
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   useAccount,
   useConnect,
@@ -22,6 +22,8 @@ import {
   approveAmountFor,
   assembleCards,
   checkoutReducer,
+  findExistingSubs,
+  type CandidateSub,
   type CheckoutState,
 } from "./logic";
 import { pickWalletChoices, type WalletChoices } from "./wallet-picker";
@@ -34,7 +36,10 @@ import { pickWalletChoices, type WalletChoices } from "./wallet-picker";
  * whose eligible card is older than the 64 most-recently-minted cards
  * network-wide simply won't see it offered here and falls back to minting a
  * fresh one. Acceptable for the demo; a production embed would need either
- * an indexer or a real "cards by owner" view. */
+ * an indexer or a real "cards by owner" view.
+ *
+ * Reused verbatim (same bound, same tradeoff) for the existing-subscription
+ * scan below — there's no "subscriptions by owner" enumeration either. */
 const CARD_SCAN_LIMIT = 64n;
 
 /** Turns a thrown error into a short, human-readable message for the UI.
@@ -89,6 +94,28 @@ export interface UseCheckoutFlowReturn {
   state: CheckoutState;
   plan?: CheckoutPlan;
   cards: CheckoutCard[];
+  /** subIds of this connected address's own Active subscriptions to this
+   * exact plan, found by the existing-subscription scan below. Advisory
+   * only — deliberately NOT part of the `initialLoading` gate, so it never
+   * delays the panel: it starts `[]` while disconnected or still loading
+   * and simply appears once the scan lands. The merchant's
+   * SubscriptionManager allows the same wallet to subscribe to the same
+   * plan more than once (a policy choice, not a protocol rule); this is
+   * what lets the UI warn about it rather than silently double-charge a
+   * card whose per-period limit happens to cover both subscriptions. */
+  existingSubIds: bigint[];
+  /** Snapshot of "did `existingSubIds` show a duplicate at the moment THIS
+   * subscribe was fired" — captured synchronously in `payAndSubscribe`
+   * before its first `await`, and only updated when a subscribe actually
+   * completes (`subscribeDone`). Deliberately separate from the live
+   * `existingSubIds` above: react-query's default `refetchOnWindowFocus`
+   * fires when the wallet popup blurs/refocuses the tab mid-flow, and if
+   * that refetch resolves after `subscribe` lands, the live scan would pick
+   * up the buyer's OWN brand-new subscription and `existingSubIds` would go
+   * non-empty for a genuinely first-time subscriber. The done-screen note
+   * must read THIS field, never `existingSubIds`, or that race reintroduces
+   * a false "you already have one" warning. */
+  subscribedWithExisting: boolean;
   /** True until every initial-load chain read has settled (success or
    * error): the plan reads, nextCardId, and — if nextCardId revealed any
    * candidate ids — both the getCard and allowlist multicalls. While this is
@@ -141,6 +168,11 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
   );
 
   const [state, dispatch] = useReducer(checkoutReducer, { step: "connect" });
+
+  // See `subscribedWithExisting`'s doc-comment on the return type: a
+  // snapshot taken synchronously at the start of `payAndSubscribe`, not the
+  // live `existingSubIds` — only ever written alongside `subscribeDone`.
+  const [subscribedWithExisting, setSubscribedWithExisting] = useState(false);
 
   const { address, isConnected, isReconnecting } = useAccount();
   const { connect: wagmiConnect } = useConnect();
@@ -305,6 +337,78 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     chainId: ARC_CHAIN_ID,
     query: { enabled: allowlistContracts.length > 0, retry: 2 },
   });
+
+  // --- Existing-subscription scan: same nextId-then-multicall shape as the
+  // card scan above (nextSubId → subScanIds → a getSubscription(subId)
+  // multicall over CARD_SCAN_LIMIT most-recent ids), but purely advisory —
+  // it warns the buyer they already hold an Active subscription to this
+  // plan (the SubscriptionManager deliberately allows subscribing to the
+  // same plan twice; the payer's card is what usually — not always —
+  // declines the second charge). Deliberately NOT folded into
+  // `initialLoading`/`initialError` below: a slow or failed scan should
+  // never delay or block the panel, only leave the note absent.
+  // refetchOnWindowFocus: false on both sub-scan queries — this scan is
+  // advisory only, and react-query's default focus-refetch fires exactly
+  // when a wallet popup blurs/refocuses the tab mid-subscribe. Without this,
+  // a refetch landing after `subscribe` writes would pick up the buyer's own
+  // brand-new subscription and flip `existingSubIds` non-empty for what was
+  // actually a first-time subscriber — see `subscribedWithExisting`'s
+  // doc-comment above for why the done screen never reads the live value
+  // anyway, but there's no reason to pay the extra RPC churn here either.
+  const { data: nextSubId, status: nextSubIdStatus } = useReadContract({
+    address: addresses.subscriptionManager,
+    abi: SUBSCRIPTION_MANAGER_ABI,
+    functionName: "nextSubId",
+    chainId: ARC_CHAIN_ID,
+    query: { retry: 2, refetchOnWindowFocus: false },
+  });
+
+  const subScanIds = useMemo<bigint[]>(() => {
+    if (nextSubId === undefined || nextSubId === 0n) return [];
+    const lowest = nextSubId > CARD_SCAN_LIMIT ? nextSubId - CARD_SCAN_LIMIT : 0n;
+    const ids: bigint[] = [];
+    for (let id = nextSubId - 1n; id >= lowest; id--) ids.push(id);
+    return ids;
+  }, [nextSubId]);
+
+  const getSubscriptionContracts = useMemo(() => {
+    if (subScanIds.length === 0) return [];
+    return subScanIds.map(
+      (id) =>
+        ({
+          address: addresses.subscriptionManager,
+          abi: SUBSCRIPTION_MANAGER_ABI,
+          functionName: "getSubscription",
+          args: [id],
+        }) as const,
+    );
+  }, [subScanIds, addresses.subscriptionManager]);
+
+  const { data: subResults } = useReadContracts({
+    contracts: getSubscriptionContracts,
+    allowFailure: true,
+    chainId: ARC_CHAIN_ID,
+    query: { enabled: getSubscriptionContracts.length > 0, retry: 2, refetchOnWindowFocus: false },
+  });
+
+  // Best-effort, not atomic like assembleCards: this is advisory-only, so a
+  // still-settling or partially-failed scan simply yields `[]` rather than
+  // blocking anything. Requires an exact length match against subScanIds
+  // (else a stale, differently-sized array from a query key that hasn't
+  // caught up yet could get zipped by index against the wrong ids) and
+  // skips any per-element failure rather than rejecting the whole batch.
+  const existingSubIds = useMemo<bigint[]>(() => {
+    if (!address || nextSubIdStatus !== "success" || subScanIds.length === 0) return [];
+    if (!subResults || subResults.length !== subScanIds.length) return [];
+    const candidates: CandidateSub[] = [];
+    for (let i = 0; i < subScanIds.length; i++) {
+      const result = subResults[i];
+      if (result?.status !== "success") continue;
+      const sub = result.result;
+      candidates.push({ subId: subScanIds[i], customer: sub.customer, planId: sub.planId, state: sub.state });
+    }
+    return findExistingSubs(candidates, address, opts.planId);
+  }, [address, nextSubIdStatus, subScanIds, subResults, opts.planId]);
 
   // --- Atomic initial-load gate. Settled means "resolved to success or
   // error", not merely "has data" — a disabled query (e.g. versionRaw before
@@ -474,6 +578,13 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     if (busyRef.current) return;
     busyRef.current = true;
     const cardId = state.selectedCardId;
+    // Snapshot BEFORE any await — see `subscribedWithExisting`'s doc-comment.
+    // `existingSubIds` is live react-query state that can change out from
+    // under this call (e.g. a window-focus refetch while the wallet popup
+    // is open), so "did the buyer already have one when they clicked
+    // Subscribe" has to be captured synchronously right here, not read again
+    // once the write resolves.
+    const hadExistingSubsAtSubscribe = existingSubIds.length > 0;
     // I3: check/raise allowance on this plan's actual token, not a
     // hardcoded USDC address — see the matching comment in mintAndUse.
     const token = planRaw?.token ?? addresses.usdc;
@@ -518,6 +629,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
       });
       await awaitSuccess(publicClient, subscribeHash, "Subscribe");
       dispatch({ type: "subscribeDone", subId });
+      setSubscribedWithExisting(hadExistingSubsAtSubscribe);
     } catch (err) {
       dispatch({ type: "fail", message: describeError(err) });
     } finally {
@@ -529,6 +641,8 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     state,
     plan,
     cards,
+    existingSubIds,
+    subscribedWithExisting,
     initialLoading,
     initialError,
     retryInitial,

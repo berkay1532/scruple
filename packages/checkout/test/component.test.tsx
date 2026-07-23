@@ -21,6 +21,8 @@ function baseHookReturn(overrides: Partial<UseCheckoutFlowReturn> = {}): UseChec
     state: { step: "connect" },
     plan: undefined,
     cards: [],
+    existingSubIds: [],
+    subscribedWithExisting: false,
     initialLoading: false,
     initialError: null,
     retryInitial: vi.fn(),
@@ -282,6 +284,135 @@ describe("ScrupleCheckout — pick step", () => {
     expect(container.textContent).toContain("No eligible cards yet — mint one below.");
     expect(screen.getByRole("button", { name: /^Mint a new card for this plan$/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^or mint a new card for this plan$/i })).toBeNull();
+  });
+});
+
+describe("ScrupleCheckout — already-subscribed note", () => {
+  it("pick step: renders no warning note when existingSubIds is empty", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "pick" },
+        plan: { amount: 29_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        cards: [{ cardId: 4n, label: "Card #4", eligible: true }],
+        existingSubIds: [],
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    render(<ScrupleCheckout planId={1n} />);
+
+    expect(screen.queryByText(/already have an active subscription/i)).toBeNull();
+  });
+
+  it("pick step: renders the warning note with the single existing subId, and keeps the Subscribe CTA enabled", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "pick", selectedCardId: 4n },
+        plan: { amount: 29_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        cards: [{ cardId: 4n, label: "Card #4", eligible: true }],
+        existingSubIds: [7n],
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(container.textContent).toContain("You already have an active subscription to this plan (#7).");
+    const subscribeButton = screen.getByRole("button", { name: /^Subscribe$/ }) as HTMLButtonElement;
+    expect(subscribeButton.disabled).toBe(false);
+  });
+
+  it("pick step: renders '(#N, #M…)' once there's more than one existing subId", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "pick" },
+        plan: { amount: 29_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        cards: [],
+        existingSubIds: [7n, 9n],
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(container.textContent).toContain("(#7, #9…)");
+  });
+
+  it("done step: renders the short heads-up line when subscribedWithExisting is true", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "done", subId: 12n },
+        plan: { amount: 29_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        subscribedWithExisting: true,
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(container.textContent).toContain("Heads up: this wallet now has more than one active subscription to this plan.");
+  });
+
+  it("done step: omits the heads-up line when subscribedWithExisting is false", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "done", subId: 12n },
+        plan: { amount: 29_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        subscribedWithExisting: false,
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(container.textContent).not.toContain("Heads up");
+  });
+
+  // Regression: react-query's default refetchOnWindowFocus can resolve the
+  // sub-scan AFTER a subscribe write lands (the wallet popup blurring/
+  // refocusing the tab is exactly this trigger), picking up the buyer's own
+  // brand-new subscription and flipping the live `existingSubIds` non-empty
+  // for what was actually a first-time subscriber. The done screen must
+  // read the subscribe-time snapshot (`subscribedWithExisting`), never the
+  // live list — these two cases deliberately set the fields to CONTRADICT
+  // each other so a component that reads the wrong one fails loudly.
+  it("done step: shows the line when subscribedWithExisting is true even though the live existingSubIds is empty", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "done", subId: 12n },
+        plan: { amount: 29_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        existingSubIds: [],
+        subscribedWithExisting: true,
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(container.textContent).toContain("Heads up: this wallet now has more than one active subscription to this plan.");
+  });
+
+  it("done step: hides the line when subscribedWithExisting is false even though the live existingSubIds is non-empty (the focus-refetch race)", () => {
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        state: { step: "done", subId: 12n },
+        plan: { amount: 29_000_000n, periodS: 30 * 86400, trialS: 0, merchant: "0xMerchant" },
+        existingSubIds: [12n], // e.g. a post-subscribe focus refetch picked up this very sub
+        subscribedWithExisting: false,
+        isConnected: true,
+        address: "0xBuyer",
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(container.textContent).not.toContain("Heads up");
   });
 });
 
