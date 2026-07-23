@@ -376,7 +376,7 @@ function PlanDetail({ plan, subCount }: { plan: MerchantPlan; subCount: number }
 }
 
 function Plans({ events }: { events: EventRow[] }) {
-  const { plans, subs, pending, createPlan } = useMerchant(events);
+  const { plans, subs, isLoading, pending, createPlan } = useMerchant(events);
   const [drawer, setDrawer] = useState<PlanDrawerState>(null);
 
   const subCountByPlan = useMemo(() => {
@@ -402,14 +402,18 @@ function Plans({ events }: { events: EventRow[] }) {
       <Panel>
         <h2>Recurring plans</h2>
         {plans.length === 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
-            <p className="empty-note">
-              Create your first plan — subscribers can check out the moment it&apos;s live.
-            </p>
-            <button className="btn primary" onClick={() => setDrawer({ kind: "new" })}>
-              Create plan
-            </button>
-          </div>
+          isLoading ? (
+            <p className="empty-note">Loading plans…</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
+              <p className="empty-note">
+                Create your first plan — subscribers can check out the moment it&apos;s live.
+              </p>
+              <button className="btn primary" onClick={() => setDrawer({ kind: "new" })}>
+                Create plan
+              </button>
+            </div>
+          )
         ) : (
           <table>
             <thead>
