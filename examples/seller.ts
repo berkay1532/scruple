@@ -8,7 +8,7 @@ if (!sellerAddress) throw new Error("SELLER_ADDRESS env var required");
 const serviceIngestUrl = process.env.SERVICE_INGEST_URL;
 const serviceIngestSecret = process.env.SERVICE_INGEST_SECRET;
 
-let forward: ((e: Parameters<typeof scruple>[0]["onPayment"]>[0]) => Promise<void>) | undefined;
+let forward: ReturnType<typeof createServiceForwarder> | undefined;
 if (serviceIngestUrl && serviceIngestSecret) {
   forward = createServiceForwarder({ url: serviceIngestUrl, secret: serviceIngestSecret });
   console.log("[scruple] forwarding enabled: metered payments → service ingest");
