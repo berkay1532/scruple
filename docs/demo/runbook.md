@@ -126,6 +126,25 @@ per-day/merchant granularity is SDK-enforced + on-chain-declared today;
 subscriptions rail is fully contract-enforced; ERC-7715 alignment makes the
 hard-enforcement upgrade mechanical.
 
+**Card-bound agent** — set `CARD_ID` (decimal) to make `examples/agent.ts`
+derive its spending policy from a real on-chain CardIssuer card instead of
+the hard-coded $2/day default: it reads the card, hard-fails at startup
+unless the card is Active and its `signer` is this agent's own address, then
+sets `periodBudget`/`periodMs` from `periodAmount`/`periodDuration`. Before
+each paid request it also calls the card's `previewSpend` view as an
+advisory chain-declared gate. This does not change how the payment itself
+settles — metered spend still moves as a plain Gateway/EOA transfer, since
+routing through the card contract needs 7715/4337 session keys — so
+`previewSpend` is a read-only check layered on top of the same
+PolicyTracker hard budget, not an extra enforcement rail. Without `CARD_ID`
+the agent behaves exactly as before.
+
+| env | default | meaning |
+| --- | --- | --- |
+| `CARD_ID` | unset | decimal cardId; enables card-bound mode when set |
+| `CARD_ISSUER_ADDRESS` | `0xE20EB808cF87B73D716C96CBbb1eee62282506d0` | CardIssuer contract to read |
+| `MERCHANT_ADDRESS` | `0x2526a4Ebc2FFa3caE58F0861FfD78027fc86d931` | merchant passed to `previewSpend` |
+
 ## 4. Contingencies
 
 | Symptom | Fix |
