@@ -117,6 +117,14 @@ export interface UseCheckoutFlowReturn {
    * component maps: direct → single "Connect wallet" button, pick →
    * `<WalletPicker/>` list, none → button falling back to `injected()`. */
   walletChoices: WalletChoices<Connector>;
+  /** True while wagmi is restoring a previous session (`useAccount().status
+   * === "reconnecting"`). EIP-6963 announcements land before the async
+   * reconnect flips `isConnected`, so without this gate a
+   * previously-connected buyer with ≥2 wallets would see the picker list
+   * flash before the panel snaps to loading. The component renders a
+   * disabled single "Connect wallet" button — never the picker — while this
+   * is true. */
+  isReconnecting: boolean;
   isConnected: boolean;
   address?: string;
   select(cardId: bigint): void;
@@ -134,7 +142,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
 
   const [state, dispatch] = useReducer(checkoutReducer, { step: "connect" });
 
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, isReconnecting } = useAccount();
   const { connect: wagmiConnect } = useConnect();
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID });
@@ -520,6 +528,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     retryInitial,
     connectWith,
     walletChoices,
+    isReconnecting,
     isConnected,
     address,
     select,

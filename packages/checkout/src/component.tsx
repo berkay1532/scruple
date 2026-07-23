@@ -58,6 +58,7 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
     retryInitial,
     connectWith,
     walletChoices,
+    isReconnecting,
     isConnected,
     select,
     mintAndUse,
@@ -138,7 +139,19 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
             - "none" (SSR render, or no wallet installed): the same single
               button, falling back to a fresh generic `injected()` connector
               so the pre-6963 behavior is preserved verbatim. */}
-        {state.step === "connect" ? (
+        {/* Reconnect gate: with ssr:true, EIP-6963 announcements land
+            BEFORE wagmi's async reconnect flips isConnected, so a
+            previously-connected buyer with ≥2 wallets would otherwise see
+            the picker flash before the panel snaps to loading. While the
+            session is being restored, render the plain single button
+            (disabled) — never the picker. */}
+        {state.step === "connect" && isReconnecting ? (
+          <button type="button" className="sck-btn sck-btn-primary" disabled>
+            Connect wallet
+          </button>
+        ) : null}
+
+        {state.step === "connect" && !isReconnecting ? (
           walletChoices.mode === "pick" ? (
             <div className="sck-connect-pick">
               <p className="sck-status">Choose a wallet</p>

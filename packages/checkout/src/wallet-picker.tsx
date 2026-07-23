@@ -15,6 +15,7 @@
 // component.tsx's single injected <style data-sck> block, so it styles
 // correctly inside the checkout panel. Hosts that render it standalone (the
 // dashboard's connect popover, Task 2) bring their own styling.
+import { useState } from "react";
 
 /** The subset of wagmi's `Connector` shape the choice logic and picker need.
  * Kept structural (rather than importing wagmi's type) so the pure helper is
@@ -33,7 +34,11 @@ export type WalletChoices<T extends WalletChoice = WalletChoice> =
 
 /** True for the generic `injected` fallback connector — the one wagmi
  * configures regardless of what's installed, as opposed to a connector
- * discovered via an EIP-6963 announcement. */
+ * discovered via an EIP-6963 announcement.
+ * Caveat: `id !== "injected"` treats ANY configured non-generic connector
+ * (e.g. walletConnect, coinbaseWallet) as "discovered" — safe today because
+ * both apps configure only `injected()`, but revisit if a host ever
+ * configures more. */
 function isGenericInjected(c: WalletChoice): boolean {
   return c.id === "injected";
 }
@@ -59,6 +64,25 @@ export interface WalletPickerProps<T extends WalletChoice> {
   onPick: (connector: T) => void;
 }
 
+/** The wallet's announced icon, degrading to the blank fallback square if
+ * the image fails to load (a malformed/blocked data URI shouldn't leave a
+ * broken-image glyph in the row). Per-row component because the failure
+ * flag is per-icon state. */
+function WalletIcon({ icon }: { icon?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!icon || failed) return <span className="sck-wallet-icon sck-wallet-icon-fallback" aria-hidden="true" />;
+  return (
+    <img
+      className="sck-wallet-icon"
+      src={icon}
+      alt=""
+      width={20}
+      height={20}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 /** Vertical list of wallet buttons: icon (the data URI each EIP-6963 wallet
  * announces) + name per row. Purely presentational — choosing what appears
  * here is `pickWalletChoices`' job. */
@@ -72,11 +96,7 @@ export function WalletPicker<T extends WalletChoice>({ choices, onPick }: Wallet
           className="sck-wallet-row"
           onClick={() => onPick(choice)}
         >
-          {choice.icon ? (
-            <img className="sck-wallet-icon" src={choice.icon} alt="" width={20} height={20} />
-          ) : (
-            <span className="sck-wallet-icon sck-wallet-icon-fallback" aria-hidden="true" />
-          )}
+          <WalletIcon icon={choice.icon} />
           <span className="sck-wallet-name">{choice.name}</span>
         </button>
       ))}

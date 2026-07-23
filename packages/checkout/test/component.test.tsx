@@ -26,6 +26,7 @@ function baseHookReturn(overrides: Partial<UseCheckoutFlowReturn> = {}): UseChec
     retryInitial: vi.fn(),
     connectWith: vi.fn(),
     walletChoices: { mode: "none" },
+    isReconnecting: false,
     isConnected: false,
     address: undefined,
     select: vi.fn(),
@@ -54,6 +55,35 @@ describe("ScrupleCheckout — connect step", () => {
     expect(buttons[0].textContent).toBe("Connect wallet");
     fireEvent.click(buttons[0]);
     expect(connectWith).toHaveBeenCalledTimes(1);
+    // The fallback must be a connector-producing function (wagmi's
+    // `injected()` CreateConnectorFn), not undefined or a stale connector.
+    expect(connectWith).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it("while reconnecting: renders a disabled single connect button and NEVER the picker, even with >=2 discovered wallets", () => {
+    // Regression: with ssr:true, EIP-6963 announcements land before the
+    // async reconnect flips isConnected, so pick mode can be computed while
+    // a previous session is still being restored — the picker must not
+    // flash in that window.
+    const connectWith = vi.fn();
+    const metamask = fakeConnector("io.metamask", "MetaMask");
+    const phantom = fakeConnector("app.phantom", "Phantom");
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        connectWith,
+        walletChoices: { mode: "pick", connectors: [metamask, phantom] },
+        isReconnecting: true,
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(screen.queryByText("Choose a wallet")).toBeNull();
+    expect(container.querySelector(".sck-wallets")).toBeNull();
+    expect(screen.queryByText("MetaMask")).toBeNull();
+    expect(screen.queryByText("Phantom")).toBeNull();
+    const button = screen.getByRole("button", { name: /^Connect wallet$/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 
   it("mode direct: renders exactly the same single button (no picker) and connects with THAT connector", () => {
