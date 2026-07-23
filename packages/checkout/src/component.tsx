@@ -62,6 +62,7 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
     plan,
     cards,
     existingSubIds,
+    subscribedWithExisting,
     initialLoading,
     initialError,
     retryInitial,
@@ -266,7 +267,13 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
               ✓
             </span>
             <p>Subscribed — sub #{state.subId?.toString()}</p>
-            {existingSubIds.length > 0 ? (
+            {/* Reads the subscribe-time snapshot, never the live
+                `existingSubIds` — react-query's focus-refetch can land after
+                this subscribe's write resolves and pick up the buyer's OWN
+                new subscription, which would make the live list non-empty
+                for a genuinely first-time subscriber. See
+                `subscribedWithExisting`'s doc-comment in use-checkout.ts. */}
+            {subscribedWithExisting ? (
               <p className="sck-warn">Heads up: this wallet now has more than one active subscription to this plan.</p>
             ) : null}
           </div>
