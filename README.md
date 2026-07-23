@@ -32,6 +32,12 @@ directly to the merchant + treasury via `transferFrom`:
   architecture, including the SDKs, indexer, and dashboard planned for later
   phases.
 
+## Live demo
+
+- **Dashboard:** https://scruple-dashboard.vercel.app (merchant + cards views; connect an Arc-testnet wallet)
+- **Acme Analytics:** https://scruple-acme.vercel.app (example SaaS checkout embedding `<ScrupleCheckout/>`)
+- Service API runs at `https://scruple-service.fly.dev` (auth-gated; consumed by the dashboard).
+
 ## Build & test the contracts
 
 ```bash

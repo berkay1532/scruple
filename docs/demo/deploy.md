@@ -70,3 +70,10 @@ Root Directory `apps/acme`. Env: `ARC_RPC_URL` (same as above),
   public RPC works — the rpc-forwarder queue absorbs the rate limits, slightly
   slower first paint).
 - Fresh INGEST/ADMIN secrets at deploy time (never reuse the local dev ones).
+
+## Deployed 2026-07-23 (live)
+
+- Service: https://scruple-service.fly.dev (Fly app `scruple-service`, fra, volume `scruple_data`, `admin=dedicated`, START_BLOCK=52700000 — full history backfilled: 16 events)
+- Dashboard: https://scruple-dashboard.vercel.app (project `scruple-dashboard`, root `apps/dashboard`, git-linked to main — pushes auto-deploy)
+- Acme: https://scruple-acme.vercel.app (project `scruple-acme`, root `apps/acme`, `NEXT_PUBLIC_ACME_PLAN_ID=0`)
+- Secrets: fresh production INGEST/ADMIN secrets set host-side only (Fly + Vercel); never in the repo.
