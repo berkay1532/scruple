@@ -1,7 +1,19 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
-import { useAccount, useChainId, useConnect, useConnections, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  useAccount,
+  useChainId,
+  useConnect,
+  useConnections,
+  useConnectors,
+  useDisconnect,
+  useSwitchChain,
+  type Connector,
+  type CreateConnectorFn,
+} from "wagmi";
+import { injected } from "wagmi/connectors";
+import { pickWalletChoices } from "@scruple/checkout";
 import { arcTestnet } from "../lib/chain";
 import { useToast } from "./ui";
 
@@ -32,14 +44,42 @@ function AddressPill() {
   return <span className="addr mono">{address ? shortenAddress(address) : "—"}</span>;
 }
 
-/** Injected-connector connect/disconnect toggle. MVP has no wallet picker — one connector. */
+/** Wallet icon with a blank-square fallback if the announced data URI fails
+ * to load — mirrors `@scruple/checkout`'s WalletIcon, reimplemented here
+ * with dashboard classes since WalletPicker's `sck-*` styles only ship
+ * inside ScrupleCheckout's own injected <style> block. */
+function WalletRowIcon({ icon }: { icon?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!icon || failed) return <span className="wallet-pop-icon wallet-pop-icon-fallback" aria-hidden="true" />;
+  return (
+    <img
+      className="wallet-pop-icon"
+      src={icon}
+      alt=""
+      width={18}
+      height={18}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+/** Connect/disconnect toggle. On connect, `pickWalletChoices` (from
+ * `@scruple/checkout`, shared with the checkout widget so the dedupe rule
+ * lives in one place) decides direct-connect vs. picker: "none"/"direct"
+ * connect immediately (today's single-connector behavior, generic
+ * `injected()` fallback for "none"); "pick" (≥2 EIP-6963-discovered
+ * wallets) opens a small popover instead of silently connecting to
+ * whichever extension currently owns `window.ethereum`. Gated on
+ * `!isReconnecting` so wagmi's async session restore never flashes the
+ * popover before snapping to the connected state. */
 export function ConnectButton() {
-  const { isConnected, connector: activeConnector } = useAccount();
+  const { isConnected, connector: activeConnector, isReconnecting } = useAccount();
   const connectors = useConnectors();
   const connections = useConnections();
   const { connect, isPending, error } = useConnect();
   const { disconnect } = useDisconnect();
   const toast = useToast();
+  const [picking, setPicking] = useState(false);
 
   // wagmi's `connect` (the mutate-style variant) doesn't throw or return a
   // promise — it reports failures (rejected in wallet, no connector, wrong
@@ -74,15 +114,55 @@ export function ConnectButton() {
     );
   }
 
-  const connector = connectors[0];
+  const choices = pickWalletChoices<Connector>(connectors);
+
+  function connectTo(connector: Connector | CreateConnectorFn) {
+    setPicking(false);
+    connect({ connector, chainId: arcTestnet.id });
+  }
+
+  function handleConnectClick() {
+    if (choices.mode === "pick") {
+      setPicking((open) => !open);
+      return;
+    }
+    connectTo(choices.mode === "direct" ? choices.connector : injected());
+  }
+
   return (
-    <button
-      className="btn small"
-      onClick={() => connector && connect({ connector })}
-      disabled={isPending || !connector}
-    >
-      {isPending ? "Connecting…" : "Connect"}
-    </button>
+    <div className="wallet-connect">
+      <button
+        className="btn small"
+        onClick={handleConnectClick}
+        disabled={isPending || isReconnecting}
+      >
+        {isPending ? "Connecting…" : "Connect"}
+      </button>
+      {picking && !isReconnecting && choices.mode === "pick" ? (
+        <>
+          <button
+            type="button"
+            className="wallet-pop-scrim"
+            aria-label="Close wallet picker"
+            onClick={() => setPicking(false)}
+          />
+          <div className="wallet-pop" role="menu">
+            {choices.connectors.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                role="menuitem"
+                className="wallet-pop-row"
+                onClick={() => connectTo(c)}
+              >
+                <WalletRowIcon icon={c.icon} />
+                <span>{c.name}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }
 

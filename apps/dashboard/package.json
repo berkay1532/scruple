@@ -4,6 +4,7 @@
   "private": true,
   "scripts": { "dev": "next dev", "build": "next build", "start": "next start", "test": "vitest run" },
   "dependencies": {
+    "@scruple/checkout": "*",
     "@tanstack/react-query": "^5.60.0",
     "next": "^16.1.6",
     "react": "^19.2.0",
