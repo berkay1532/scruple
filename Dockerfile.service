@@ -1,0 +1,17 @@
+# Scruple service (indexer + webhooks + admin API) — Fly.io image.
+# Build context = repo root; .dockerignore trims it to the root manifests,
+# every workspace package.json, and packages/service sources.
+FROM node:20-slim
+
+WORKDIR /app
+
+COPY . .
+
+# better-sqlite3 ships prebuilt linux-x64 binaries, so no build toolchain is
+# needed on -slim. tsx is pinned to the version in the root lockfile.
+RUN npm ci --workspace=@scruple/service && npm i -g tsx@4.23.1
+
+# SQLite lives on the mounted volume (fly.toml mounts /data).
+ENV DB_PATH=/data/scruple.db
+EXPOSE 8788
+CMD ["tsx", "packages/service/bin/service.ts"]

@@ -1,0 +1,25 @@
+# Keep the build context tiny: the service image needs the root manifests,
+# every workspace's package.json (npm ci validates the whole workspace tree),
+# and packages/service sources — nothing else.
+.git
+.superpowers
+docs
+contracts
+**/node_modules
+**/.next
+**/*.db
+
+apps/dashboard/**
+!apps/dashboard/package.json
+apps/acme/**
+!apps/acme/package.json
+examples/**
+!examples/package.json
+packages/checkout/**
+!packages/checkout/package.json
+packages/client/**
+!packages/client/package.json
+packages/server/**
+!packages/server/package.json
+packages/rpc-forwarder/**
+!packages/rpc-forwarder/package.json
