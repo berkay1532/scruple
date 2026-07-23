@@ -272,9 +272,16 @@ function Gallery({ events }: { events: EventRow[] }) {
       </div>
 
       {cards.length === 0 ? (
-        <p className="empty-note">
-          {isLoading ? "Loading your cards…" : "No cards yet — mint one to start scoping agent or personal spend."}
-        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
+          <p className="empty-note">
+            {isLoading ? "Loading your cards…" : "No cards yet — mint one to start scoping agent or personal spend."}
+          </p>
+          {!isLoading && (
+            <button className="btn primary" onClick={() => setMintOpen(true)}>
+              Mint your first card
+            </button>
+          )}
+        </div>
       ) : (
         <>
           <div className="cards-grid">

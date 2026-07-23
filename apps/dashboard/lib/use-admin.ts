@@ -78,6 +78,39 @@ export function resendDelivery(endpointId: number, eventId: string): Promise<{ o
   return req(`deliveries/${endpointId}/${eventId}/resend`, { method: "POST" });
 }
 
+/**
+ * Emits a `nudge.requested` webhook for a sub the attention list surfaced.
+ * `emitted: false` means the sub was already nudged this billing period
+ * (idempotent — never an error, never a duplicate delivery). 404 "nothing
+ * to nudge" surfaces as a thrown Error like every other action here.
+ */
+export function nudge(subId: string): Promise<{ ok: boolean; emitted: boolean }> {
+  return req(`nudge/${subId}`, { method: "POST" });
+}
+
+/**
+ * One-shot onboarding signal: true ONLY when the admin endpoints fetch
+ * succeeds and returns zero endpoints. Stays false while loading and on any
+ * fetch error — dashboards without a configured service must not nag.
+ */
+export function useEndpointsEmpty(): boolean {
+  const [empty, setEmpty] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    req<{ endpoints?: AdminEndpoint[] }>("endpoints")
+      .then((body) => {
+        if (!cancelled) setEmpty(Array.isArray(body.endpoints) && body.endpoints.length === 0);
+      })
+      .catch(() => {
+        // fetch error → no hint (leave `empty` false)
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return empty;
+}
+
 const POLL_MS = 10_000;
 const DELIVERIES_LIMIT = 100;
 

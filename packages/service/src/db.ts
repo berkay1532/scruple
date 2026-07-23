@@ -301,6 +301,22 @@ export class Store {
     return res.changes > 0;
   }
 
+  latestAttentionPeriod(subId: string): string | null {
+    const row = this.db
+      .prepare(`
+        SELECT payload
+        FROM events
+        WHERE type IN ('subscription.at_risk', 'payment.attempt_failed', 'payment.overdue')
+          AND json_extract(payload, '$.subId') = ?
+        ORDER BY at DESC, id DESC
+        LIMIT 1
+      `)
+      .get(subId) as { payload: string } | undefined;
+    if (!row) return null;
+    const payload = JSON.parse(row.payload) as Record<string, string>;
+    return payload.nextChargeAt ?? null;
+  }
+
   listRecentEvents(opts?: { limit?: number; type?: string }): DomainEvent[] {
     const raw = opts?.limit ?? 100;
     const n = Number.isFinite(raw) ? Math.trunc(raw as number) : 100;

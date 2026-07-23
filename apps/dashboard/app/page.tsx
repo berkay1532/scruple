@@ -20,7 +20,7 @@ export default function Page() {
     <Chrome view={view} onViewChange={handleViewChange} screen={screen} onScreenChange={setScreen}>
       {error && <p className="empty-note">Live data unavailable: {error}</p>}
       {view === "merchant" ? (
-        <Merchant screen={screen as MerchantScreen} events={events} />
+        <Merchant screen={screen as MerchantScreen} events={events} onScreenChange={setScreen} />
       ) : (
         <Cards screen={screen as CardsScreen} events={events} />
       )}

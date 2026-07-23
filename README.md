@@ -3,6 +3,8 @@
 Stripe-grade billing for the USDC economy on Arc: usage-based + subscription
 billing (merchant side) and spending-policy Cards (payer side). Non-custodial.
 
+**New here? [Scruple in 5 minutes](docs/quickstart.md)** — plan → checkout embed → webhooks, end to end.
+
 Encode × Arc Programmable Money Hackathon 2026 — tracks: DeFi + Agentic Economy.
 
 ## Architecture
@@ -30,7 +32,7 @@ directly to the merchant + treasury via `transferFrom`:
   architecture, including the SDKs, indexer, and dashboard planned for later
   phases.
 
-## Quickstart
+## Build & test the contracts
 
 ```bash
 git clone --recurse-submodules https://github.com/berkay1532/scruple.git

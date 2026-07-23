@@ -107,6 +107,48 @@ describe("Store", () => {
     store.insertEvent({ id: "e1", type: "payment.succeeded", blockNumber: huge, payload: { subId: "1" }, at: 100 });
     expect(store.listRecentEvents()[0].blockNumber).toBe(huge);
   });
+
+  describe("latestAttentionPeriod", () => {
+    it("returns the nextChargeAt of the NEWEST attention event for that sub", () => {
+      store.insertEvent({
+        id: "atrisk:7:100",
+        type: "subscription.at_risk",
+        blockNumber: null,
+        payload: { subId: "7", reason: "insufficient_balance", nextChargeAt: "100" },
+        at: 1000,
+      });
+      store.insertEvent({
+        id: "overdue:7:200",
+        type: "payment.overdue",
+        blockNumber: null,
+        payload: { subId: "7", nextChargeAt: "200" },
+        at: 2000,
+      });
+      expect(store.latestAttentionPeriod("7")).toBe("200");
+    });
+
+    it("ignores other subs' events and non-attention types", () => {
+      store.insertEvent({
+        id: "atrisk:8:100",
+        type: "subscription.at_risk",
+        blockNumber: null,
+        payload: { subId: "8", reason: "insufficient_balance", nextChargeAt: "100" },
+        at: 1000,
+      });
+      store.insertEvent({
+        id: "e-other:7",
+        type: "payment.succeeded",
+        blockNumber: null,
+        payload: { subId: "7", nextChargeAt: "999" },
+        at: 5000,
+      });
+      expect(store.latestAttentionPeriod("7")).toBeNull();
+    });
+
+    it("returns null when no attention events exist for that sub", () => {
+      expect(store.latestAttentionPeriod("nope")).toBeNull();
+    });
+  });
 });
 
 describe("Store admin surface", () => {

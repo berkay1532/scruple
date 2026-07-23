@@ -40,10 +40,12 @@ import { useMerchant, type MerchantPlan, type MerchantSub } from "@/lib/use-merc
 import {
   createEndpoint,
   deleteEndpoint,
+  nudge,
   resendDelivery,
   rotateEndpointSecret,
   setEndpointPaused,
   useAdmin,
+  useEndpointsEmpty,
   type AdminDelivery,
   type AdminEndpoint,
 } from "@/lib/use-admin";
@@ -63,10 +65,54 @@ const EMPTY_PLAN_IDS: ReadonlySet<string> = new Set();
 /* Overview                                                          */
 /* ================================================================ */
 
-function Overview({ events }: { events: EventRow[] }) {
+// Session-only dismiss for the webhooks-unconfigured hint: module state
+// survives screen switches within this tab's JS session but is deliberately
+// not persisted anywhere (the hint may reappear after a reload).
+let webhooksHintDismissed = false;
+
+function Overview({
+  events,
+  onScreenChange,
+}: {
+  events: EventRow[];
+  onScreenChange?: (screen: MerchantScreen) => void;
+}) {
   const { subs } = useMerchant(events);
   const { address } = useAccount();
+  const toast = useToast();
   const nowMs = Date.now();
+
+  // Per-row in-flight guard for Nudge — only the clicked row's button
+  // disables, and a second click on it is a no-op until the call settles.
+  const [nudging, setNudging] = useState<ReadonlySet<string>>(EMPTY_SUB_IDS);
+
+  const endpointsEmpty = useEndpointsEmpty();
+  const [hintDismissed, setHintDismissed] = useState(webhooksHintDismissed);
+  function dismissHint() {
+    webhooksHintDismissed = true;
+    setHintDismissed(true);
+  }
+
+  async function handleNudge(subId: string) {
+    if (nudging.has(subId)) return;
+    setNudging((prev) => new Set(prev).add(subId));
+    try {
+      const res = await nudge(subId);
+      toast(
+        res.emitted
+          ? "Nudge sent — your webhook will receive nudge.requested."
+          : "Already nudged for this billing period.",
+      );
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Request failed");
+    } finally {
+      setNudging((prev) => {
+        const next = new Set(prev);
+        next.delete(subId);
+        return next;
+      });
+    }
+  }
 
   // The events feed is shared across every merchant on this one contract
   // deployment (createPlan records merchant=msg.sender; the service indexes
@@ -175,11 +221,34 @@ function Overview({ events }: { events: EventRow[] }) {
                   <div>{row.title}</div>
                   <div className="why">{row.why}</div>
                 </div>
+                <button
+                  className="btn small"
+                  style={{ marginLeft: "auto", whiteSpace: "nowrap" }}
+                  disabled={nudging.has(row.subId)}
+                  onClick={() => handleNudge(row.subId)}
+                >
+                  Nudge →
+                </button>
               </div>
             ))
           )}
         </Panel>
       </div>
+
+      {endpointsEmpty && !hintDismissed && (
+        <div className="attn-row">
+          <Badge tone="info">setup</Badge>
+          <div>Webhooks aren&apos;t set up — add an endpoint to get payment and subscription events.</div>
+          <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8 }}>
+            <button className="btn small" onClick={() => onScreenChange?.("webhooks")}>
+              Set up webhooks →
+            </button>
+            <button className="btn small" onClick={dismissHint}>
+              Dismiss
+            </button>
+          </span>
+        </div>
+      )}
 
       <Panel>
         <h2>Live activity</h2>
@@ -307,7 +376,7 @@ function PlanDetail({ plan, subCount }: { plan: MerchantPlan; subCount: number }
 }
 
 function Plans({ events }: { events: EventRow[] }) {
-  const { plans, subs, pending, createPlan } = useMerchant(events);
+  const { plans, subs, isLoading, pending, createPlan } = useMerchant(events);
   const [drawer, setDrawer] = useState<PlanDrawerState>(null);
 
   const subCountByPlan = useMemo(() => {
@@ -333,7 +402,18 @@ function Plans({ events }: { events: EventRow[] }) {
       <Panel>
         <h2>Recurring plans</h2>
         {plans.length === 0 ? (
-          <p className="empty-note">No plans yet — create one to start billing subscribers.</p>
+          isLoading ? (
+            <p className="empty-note">Loading plans…</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
+              <p className="empty-note">
+                Create your first plan — subscribers can check out the moment it&apos;s live.
+              </p>
+              <button className="btn primary" onClick={() => setDrawer({ kind: "new" })}>
+                Create plan
+              </button>
+            </div>
+          )
         ) : (
           <table>
             <thead>
@@ -961,10 +1041,18 @@ function Webhooks() {
 
 /* ================================================================ */
 
-export function Merchant({ screen, events }: { screen: MerchantScreen; events: EventRow[] }) {
+export function Merchant({
+  screen,
+  events,
+  onScreenChange,
+}: {
+  screen: MerchantScreen;
+  events: EventRow[];
+  onScreenChange?: (screen: MerchantScreen) => void;
+}) {
   switch (screen) {
     case "overview":
-      return <Overview events={events} />;
+      return <Overview events={events} onScreenChange={onScreenChange} />;
     case "plans":
       return <Plans events={events} />;
     case "subs":
