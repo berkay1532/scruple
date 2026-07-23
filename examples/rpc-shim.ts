@@ -5,7 +5,7 @@
  * when the public endpoint's per-IP limits bite (see docs/demo/runbook.md).
  */
 import { createServer } from "node:http";
-import { createRpcForwarder } from "../apps/dashboard/lib/rpc-forwarder";
+import { createRpcForwarder } from "@scruple/rpc-forwarder";
 
 const UPSTREAM = process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
 const PORT = Number(process.env.SHIM_PORT ?? 8547);

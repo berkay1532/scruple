@@ -104,7 +104,10 @@ npx tsx examples/rpc-shim.ts
 
 # Terminal 3b — seller API (dashboard must be stopped: both want :3000; the
 # storyline B screen capture is terminal + dashboard-feed anyway)
-SELLER_ADDRESS=0x2526a4Ebc2FFa3caE58F0861FfD78027fc86d931 npx tsx examples/seller.ts
+SELLER_ADDRESS=0x2526a4Ebc2FFa3caE58F0861FfD78027fc86d931 \
+SERVICE_INGEST_URL=http://localhost:8787/ingest \
+SERVICE_INGEST_SECRET=demo-secret \
+npx tsx examples/seller.ts
 
 # Terminal 3c — agent (auto-deposits $1 into Gateway on first run)
 BUYER_PRIVATE_KEY=$(cat ~/.scruple-demo-buyer.key) BASE_URL=http://localhost:3000 \
@@ -114,7 +117,9 @@ RPC_URL=http://localhost:8547 npx tsx examples/agent.ts
 Beats: agent fires requests → per-call $0.001 payments stream in the seller
 log → stop at the spending-policy line ("Stopped by spending policy") to show
 the budget guard → merchant side: `settlement.batched` rows appear in the
-dashboard feed via the ingest forwarder.
+dashboard feed via the ingest forwarder. With `SERVICE_INGEST_URL` and
+`SERVICE_INGEST_SECRET` set, live x402 payments forwarded by the seller appear
+on the dashboard's metered rate-card table via settlement.batched events.
 
 Honest-architecture talking point (if asked): pool cap is hard on-chain,
 per-day/merchant granularity is SDK-enforced + on-chain-declared today;

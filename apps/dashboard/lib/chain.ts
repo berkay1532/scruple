@@ -37,7 +37,7 @@ export const wagmiConfig = createConfig({
   // `batch: { wait: 16 }` collapses simultaneous reads (dashboard tables
   // firing several parallel contract reads on load) into a single JSON-RPC
   // batch request (a JSON array body) instead of one HTTP round trip per
-  // read — see lib/rpc-forwarder.ts / app/api/rpc/route.ts for the
+  // read — see @scruple/rpc-forwarder / app/api/rpc/route.ts for the
   // array-aware handling this requires on the proxy side.
   transports: {
     [arcTestnet.id]: http(rpcUrl, { batch: { wait: 16 } }),

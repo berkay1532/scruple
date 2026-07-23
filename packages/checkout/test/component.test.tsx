@@ -24,7 +24,9 @@ function baseHookReturn(overrides: Partial<UseCheckoutFlowReturn> = {}): UseChec
     initialLoading: false,
     initialError: null,
     retryInitial: vi.fn(),
-    connect: vi.fn(),
+    connectWith: vi.fn(),
+    walletChoices: { mode: "none" },
+    isReconnecting: false,
     isConnected: false,
     address: undefined,
     select: vi.fn(),
@@ -35,16 +37,93 @@ function baseHookReturn(overrides: Partial<UseCheckoutFlowReturn> = {}): UseChec
   };
 }
 
+// Test doubles for wagmi Connector values flowing through walletChoices —
+// only the WalletChoice-shaped subset the component/picker reads.
+type Connector = Extract<UseCheckoutFlowReturn["walletChoices"], { mode: "direct" }>["connector"];
+const fakeConnector = (id: string, name: string, icon?: string): Connector =>
+  ({ id, name, icon, type: "injected" }) as unknown as Connector;
+
 describe("ScrupleCheckout — connect step", () => {
-  it("renders a connect button that calls connect()", () => {
-    const connect = vi.fn();
-    useCheckoutFlow.mockReturnValue(baseHookReturn({ connect }));
+  it("mode none: renders today's single connect button, wired to connectWith (injected fallback)", () => {
+    const connectWith = vi.fn();
+    useCheckoutFlow.mockReturnValue(baseHookReturn({ connectWith, walletChoices: { mode: "none" } }));
 
     render(<ScrupleCheckout planId={1n} />);
 
-    const button = screen.getByRole("button", { name: /connect/i });
-    fireEvent.click(button);
-    expect(connect).toHaveBeenCalledTimes(1);
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toBe("Connect wallet");
+    fireEvent.click(buttons[0]);
+    expect(connectWith).toHaveBeenCalledTimes(1);
+    // The fallback must be a connector-producing function (wagmi's
+    // `injected()` CreateConnectorFn), not undefined or a stale connector.
+    expect(connectWith).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it("while reconnecting: renders a disabled single connect button and NEVER the picker, even with >=2 discovered wallets", () => {
+    // Regression: with ssr:true, EIP-6963 announcements land before the
+    // async reconnect flips isConnected, so pick mode can be computed while
+    // a previous session is still being restored — the picker must not
+    // flash in that window.
+    const connectWith = vi.fn();
+    const metamask = fakeConnector("io.metamask", "MetaMask");
+    const phantom = fakeConnector("app.phantom", "Phantom");
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({
+        connectWith,
+        walletChoices: { mode: "pick", connectors: [metamask, phantom] },
+        isReconnecting: true,
+      }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(screen.queryByText("Choose a wallet")).toBeNull();
+    expect(container.querySelector(".sck-wallets")).toBeNull();
+    expect(screen.queryByText("MetaMask")).toBeNull();
+    expect(screen.queryByText("Phantom")).toBeNull();
+    const button = screen.getByRole("button", { name: /^Connect wallet$/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
+
+  it("mode direct: renders exactly the same single button (no picker) and connects with THAT connector", () => {
+    const connectWith = vi.fn();
+    const metamask = fakeConnector("io.metamask", "MetaMask");
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({ connectWith, walletChoices: { mode: "direct", connector: metamask } }),
+    );
+
+    render(<ScrupleCheckout planId={1n} />);
+
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toBe("Connect wallet");
+    expect(screen.queryByText("Choose a wallet")).toBeNull();
+    expect(screen.queryByText("MetaMask")).toBeNull();
+    fireEvent.click(buttons[0]);
+    expect(connectWith).toHaveBeenCalledTimes(1);
+    expect(connectWith).toHaveBeenCalledWith(metamask);
+  });
+
+  it("mode pick: renders one row per wallet with name + icon and connects with the clicked one", () => {
+    const connectWith = vi.fn();
+    const metamask = fakeConnector("io.metamask", "MetaMask", "data:image/svg+xml;base64,AAA=");
+    const phantom = fakeConnector("app.phantom", "Phantom", "data:image/svg+xml;base64,BBB=");
+    useCheckoutFlow.mockReturnValue(
+      baseHookReturn({ connectWith, walletChoices: { mode: "pick", connectors: [metamask, phantom] } }),
+    );
+
+    const { container } = render(<ScrupleCheckout planId={1n} />);
+
+    expect(screen.getByText("Choose a wallet")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Connect wallet$/ })).toBeNull();
+    const icons = container.querySelectorAll("img.sck-wallet-icon");
+    expect(icons).toHaveLength(2);
+    expect((icons[0] as HTMLImageElement).getAttribute("src")).toBe("data:image/svg+xml;base64,AAA=");
+
+    fireEvent.click(screen.getByRole("button", { name: /Phantom/ }));
+    expect(connectWith).toHaveBeenCalledTimes(1);
+    expect(connectWith).toHaveBeenCalledWith(phantom);
   });
 });
 

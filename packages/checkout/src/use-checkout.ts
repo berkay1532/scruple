@@ -8,13 +8,14 @@ import { useEffect, useMemo, useReducer, useRef } from "react";
 import {
   useAccount,
   useConnect,
+  useConnectors,
   usePublicClient,
   useReadContract,
   useReadContracts,
   useWriteContract,
 } from "wagmi";
+import type { Connector, CreateConnectorFn } from "wagmi";
 import type { Hash } from "viem";
-import { injected } from "wagmi/connectors";
 import { BaseError, UserRejectedRequestError, zeroAddress } from "viem";
 import { ARC_CHAIN_ID, CARD_ISSUER_ABI, DEFAULT_ADDRESSES, SUBSCRIPTION_MANAGER_ABI, USDC_ABI } from "./config";
 import {
@@ -23,6 +24,7 @@ import {
   checkoutReducer,
   type CheckoutState,
 } from "./logic";
+import { pickWalletChoices, type WalletChoices } from "./wallet-picker";
 
 /** Buyer card discovery scans backward from `nextCardId`, capped at this many
  * most-recent ids. There is no "cards by owner" enumeration on-chain (see
@@ -106,7 +108,23 @@ export interface UseCheckoutFlowReturn {
   /** Re-runs every initial-load read; wired to the "Retry" button the
    * component renders alongside `initialError`. */
   retryInitial(): void;
-  connect(): void;
+  /** Connects with a specific connector — one of `walletChoices`' connectors,
+   * or a freshly-created `injected()` as the no-wallet/SSR fallback (mode
+   * "none"). Always targets Arc (`chainId: ARC_CHAIN_ID`). */
+  connectWith(connector: Connector | CreateConnectorFn): void;
+  /** The EIP-6963 dedupe result over wagmi's current connector list — see
+   * pickWalletChoices (wallet-picker.tsx) for the mode semantics. The
+   * component maps: direct → single "Connect wallet" button, pick →
+   * `<WalletPicker/>` list, none → button falling back to `injected()`. */
+  walletChoices: WalletChoices<Connector>;
+  /** True while wagmi is restoring a previous session (`useAccount().status
+   * === "reconnecting"`). EIP-6963 announcements land before the async
+   * reconnect flips `isConnected`, so without this gate a
+   * previously-connected buyer with ≥2 wallets would see the picker list
+   * flash before the panel snaps to loading. The component renders a
+   * disabled single "Connect wallet" button — never the picker — while this
+   * is true. */
+  isReconnecting: boolean;
   isConnected: boolean;
   address?: string;
   select(cardId: bigint): void;
@@ -124,7 +142,7 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
 
   const [state, dispatch] = useReducer(checkoutReducer, { step: "connect" });
 
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, isReconnecting } = useAccount();
   const { connect: wagmiConnect } = useConnect();
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID });
@@ -134,11 +152,16 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
   // both handlers bail out immediately if a call is already in flight.
   const busyRef = useRef(false);
 
-  function connect() {
-    // Plain injected connector for now — the EIP-6963 multi-wallet picker
-    // arrives in 5d as a shared component; this embed doesn't depend on
-    // whatever connectors the host app happened to configure.
-    wagmiConnect({ connector: injected(), chainId: ARC_CHAIN_ID });
+  // wagmi's multiInjectedProviderDiscovery (on by default) makes this list
+  // carry one connector per EIP-6963-announced wallet in addition to
+  // whatever the host app configured; pickWalletChoices dedupes the generic
+  // injected fallback out whenever real discovered wallets exist (the
+  // Phantom-hijacks-window.ethereum incident this feature exists for).
+  const connectors = useConnectors();
+  const walletChoices = useMemo<WalletChoices<Connector>>(() => pickWalletChoices(connectors), [connectors]);
+
+  function connectWith(connector: Connector | CreateConnectorFn) {
+    wagmiConnect({ connector, chainId: ARC_CHAIN_ID });
   }
 
   useEffect(() => {
@@ -503,7 +526,9 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     initialLoading,
     initialError,
     retryInitial,
-    connect,
+    connectWith,
+    walletChoices,
+    isReconnecting,
     isConnected,
     address,
     select,

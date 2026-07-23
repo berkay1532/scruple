@@ -23,6 +23,14 @@ export {
 } from "./logic";
 
 export {
+  pickWalletChoices,
+  WalletPicker,
+  type WalletChoice,
+  type WalletChoices,
+  type WalletPickerProps,
+} from "./wallet-picker";
+
+export {
   useCheckoutFlow,
   type UseCheckoutFlowOptions,
   type UseCheckoutFlowReturn,

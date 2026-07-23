@@ -1,0 +1,12 @@
+{
+  "name": "@scruple/rpc-forwarder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": { "test": "vitest run" },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}

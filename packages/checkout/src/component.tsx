@@ -8,8 +8,10 @@
 // its own dark-ink/brass identity regardless of the host page's theme or
 // stylesheet — see the plan's "self-contained panel surface" requirement.
 import { useEffect, useRef } from "react";
+import { injected } from "wagmi/connectors";
 import { formatUsd } from "./logic";
 import { useCheckoutFlow, type UseCheckoutFlowOptions } from "./use-checkout";
+import { WalletPicker } from "./wallet-picker";
 
 export interface ScrupleCheckoutSuccess {
   subId: bigint;
@@ -54,7 +56,9 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
     initialLoading,
     initialError,
     retryInitial,
-    connect,
+    connectWith,
+    walletChoices,
+    isReconnecting,
     isConnected,
     select,
     mintAndUse,
@@ -126,10 +130,42 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
       </header>
 
       <div className="sck-body">
-        {state.step === "connect" ? (
-          <button type="button" className="sck-btn sck-btn-primary" onClick={connect}>
+        {/* Connect step, by wallet-choice mode (see pickWalletChoices):
+            - "pick" (≥2 EIP-6963-discovered wallets): the picker list, so
+              the buyer chooses explicitly instead of whichever extension
+              currently owns window.ethereum winning silently;
+            - "direct" (one real choice after dedupe): today's single
+              "Connect wallet" button, connecting with that connector;
+            - "none" (SSR render, or no wallet installed): the same single
+              button, falling back to a fresh generic `injected()` connector
+              so the pre-6963 behavior is preserved verbatim. */}
+        {/* Reconnect gate: with ssr:true, EIP-6963 announcements land
+            BEFORE wagmi's async reconnect flips isConnected, so a
+            previously-connected buyer with ≥2 wallets would otherwise see
+            the picker flash before the panel snaps to loading. While the
+            session is being restored, render the plain single button
+            (disabled) — never the picker. */}
+        {state.step === "connect" && isReconnecting ? (
+          <button type="button" className="sck-btn sck-btn-primary" disabled>
             Connect wallet
           </button>
+        ) : null}
+
+        {state.step === "connect" && !isReconnecting ? (
+          walletChoices.mode === "pick" ? (
+            <div className="sck-connect-pick">
+              <p className="sck-status">Choose a wallet</p>
+              <WalletPicker choices={walletChoices.connectors} onPick={connectWith} />
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="sck-btn sck-btn-primary"
+              onClick={() => connectWith(walletChoices.mode === "direct" ? walletChoices.connector : injected())}
+            >
+              Connect wallet
+            </button>
+          )
         ) : null}
 
         {/* Single atomic loading placeholder: shown for the entire initial
@@ -268,6 +304,13 @@ const PANEL_CSS = `
 .sck-skeleton { display: flex; flex-direction: column; gap: 10px; }
 .sck-skeleton-row { height: 38px; border-radius: 9px; background: #1B212B; border: 1px solid #242B36; }
 .sck-skeleton-row-sm { height: 22px; width: 140px; }
+.sck-connect-pick { display: flex; flex-direction: column; gap: 8px; }
+.sck-wallets { display: flex; flex-direction: column; gap: 6px; }
+.sck-wallet-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid #242B36; border-radius: 9px; background: none; color: #E8E6E1; cursor: pointer; text-align: left; }
+.sck-wallet-row:hover { border-color: #C9A96A; }
+.sck-wallet-icon { width: 20px; height: 20px; border-radius: 5px; flex: none; }
+.sck-wallet-icon-fallback { display: inline-block; background: #1B212B; border: 1px solid #242B36; }
+.sck-wallet-name { font-size: 13px; font-weight: 500; }
 .sck-pick { display: flex; flex-direction: column; gap: 10px; }
 .sck-cards { display: flex; flex-direction: column; gap: 6px; }
 .sck-empty { margin: 0; color: #6A7180; font-size: 12.5px; }

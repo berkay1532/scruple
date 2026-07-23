@@ -1,9 +1,20 @@
 import express from "express";
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
-import { scruple, formatAtomic } from "@scruple/server";
+import { scruple, formatAtomic, createServiceForwarder } from "@scruple/server";
 
 const sellerAddress = process.env.SELLER_ADDRESS;
 if (!sellerAddress) throw new Error("SELLER_ADDRESS env var required");
+
+const serviceIngestUrl = process.env.SERVICE_INGEST_URL;
+const serviceIngestSecret = process.env.SERVICE_INGEST_SECRET;
+
+let forward: ReturnType<typeof createServiceForwarder> | undefined;
+if (serviceIngestUrl && serviceIngestSecret) {
+  forward = createServiceForwarder({ url: serviceIngestUrl, secret: serviceIngestSecret });
+  console.log("[scruple] forwarding enabled: metered payments → service ingest");
+} else {
+  console.log("[scruple] forwarding disabled");
+}
 
 const app = express();
 app.use(scruple({
@@ -14,7 +25,10 @@ app.use(scruple({
   },
   sellerAddress,
   facilitator: new BatchFacilitatorClient(),
-  onPayment: (e) => console.log(`[scruple] ${e.endpoint} paid ${formatAtomic(e.atomic)} by ${e.payer} (tx: ${e.transaction ?? "batching"})`),
+  onPayment: (e) => {
+    console.log(`[scruple] ${e.endpoint} paid ${formatAtomic(e.atomic)} by ${e.payer} (tx: ${e.transaction ?? "batching"})`);
+    if (forward) void forward(e);
+  },
 }));
 
 app.get("/api/quote", (_req, res) => { res.json({ pair: "USDC/EURC", mid: 0.9214 }); });

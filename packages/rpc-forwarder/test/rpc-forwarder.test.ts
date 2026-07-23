@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRpcForwarder } from "../lib/rpc-forwarder";
+import { createRpcForwarder } from "../src/rpc-forwarder";
 
 const RATE_LIMITED_BODY = JSON.stringify({
   jsonrpc: "2.0",
