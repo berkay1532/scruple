@@ -217,9 +217,15 @@ export function useCheckoutFlow(opts: UseCheckoutFlowOptions): UseCheckoutFlowRe
     };
   }, [planRaw, versionRaw]);
 
+  // Depends on state.step too: the plan query needs no wallet, so it can
+  // resolve while the reducer is still on "connect" (e.g. during the SSR
+  // session-restore window) — that early planLoaded is ignored, and `plan`'s
+  // reference never changes again. Re-firing when the step reaches "loading"
+  // is what advances to "pick" in that ordering (live-caught on the deployed
+  // Acme checkout: plan header rendered, body stuck empty until remount).
   useEffect(() => {
-    if (plan) dispatch({ type: "planLoaded" });
-  }, [plan]);
+    if (plan && state.step === "loading") dispatch({ type: "planLoaded" });
+  }, [plan, state.step]);
 
   // --- Card scan: nextCardId, then getCard + allowlist(cardId, merchant)
   // multicall over the most-recent CARD_SCAN_LIMIT ids (see the constant's
