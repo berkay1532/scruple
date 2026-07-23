@@ -151,8 +151,9 @@ About `nudge.requested`: when a renewal is about to fail, the subscription shows
 up in the dashboard's needs-attention list. Clicking **Nudge →** there emits one
 `nudge.requested` event to your endpoint — at most once per billing period, no
 matter how many times anyone clicks. Your handler owns what happens next:
-typically a dunning email ("your renewal of `data.amount` USDC will fail — top
-up or update your card") to the customer behind `data.subId`. Scruple never
+typically a dunning email ("your renewal will fail — top up or update your
+card") to the customer behind `data.subId` (the renewal amount arrived earlier
+on that sub's `subscription.at_risk` event). Scruple never
 touches your customer comms; it just tells you exactly when to send them.
 
 That's it. Plan on-chain, checkout on your page, events in your backend —
