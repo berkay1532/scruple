@@ -44,6 +44,14 @@ function formatDays(periodS: number): number {
   return Math.round(periodS / 86400);
 }
 
+/** Renders "#N" for a single existing subscription, or "#N, #M…" (first two
+ * ids, then an ellipsis) once there's more than one — the note doesn't need
+ * to enumerate every duplicate, just make clear there's more than one. */
+function formatExistingSubIds(ids: bigint[]): string {
+  if (ids.length <= 1) return `#${ids[0]}`;
+  return `#${ids[0]}, #${ids[1]}…`;
+}
+
 const BUSY_STEPS = new Set(["minting", "approving", "subscribing"]);
 
 export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: ScrupleCheckoutProps) {
@@ -53,6 +61,7 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
     state,
     plan,
     cards,
+    existingSubIds,
     initialLoading,
     initialError,
     retryInitial,
@@ -220,6 +229,14 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
               ))}
             </div>
 
+            {existingSubIds.length > 0 ? (
+              <p className="sck-warn">
+                You already have an active subscription to this plan ({formatExistingSubIds(existingSubIds)}).
+                Subscribing again creates a second subscription, charged separately every period — a card with a
+                high enough limit will pay both.
+              </p>
+            ) : null}
+
             <button type="button" className="sck-btn sck-btn-ghost" onClick={mintAndUse} disabled={busy}>
               {cards.length === 0 ? "Mint a new card for this plan" : "or mint a new card for this plan"}
             </button>
@@ -249,6 +266,9 @@ export function ScrupleCheckout({ planId, addresses, onSuccess, onError }: Scrup
               ✓
             </span>
             <p>Subscribed — sub #{state.subId?.toString()}</p>
+            {existingSubIds.length > 0 ? (
+              <p className="sck-warn">Heads up: this wallet now has more than one active subscription to this plan.</p>
+            ) : null}
           </div>
         ) : null}
 
@@ -331,6 +351,7 @@ const PANEL_CSS = `
 .sck-check { font-size: 26px; color: #4CAF82; }
 .sck-error { display: flex; flex-direction: column; gap: 10px; text-align: center; }
 .sck-error p { margin: 0; color: #D96C5F; font-size: 13px; }
+.sck-warn { margin: 0; padding: 9px 11px; border: 1px solid #4A3F2A; border-radius: 8px; background: #1F1B12; color: #D9B36C; font-size: 12.5px; line-height: 1.4; }
 .sck-footer { margin-top: 16px; padding-top: 12px; border-top: 1px solid #242B36; }
 .sck-footer p { margin: 0; font-size: 11px; color: #6A7180; }
 .sck-disclosure { margin-top: 4px !important; color: #C9A96A !important; }

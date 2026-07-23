@@ -3,9 +3,11 @@ import {
   approveAmountFor,
   assembleCards,
   checkoutReducer,
+  findExistingSubs,
   formatUsd,
   isCardEligible,
   type CandidateCard,
+  type CandidateSub,
   type CardResultData,
   type CheckoutState,
   type MulticallResult,
@@ -154,6 +156,42 @@ describe("assembleCards", () => {
     expect(assembleCards([], [], [], planAmount)).toEqual({ ready: true, cards: [] });
     // Even with stray (undefined) result arrays — nothing to misalign against.
     expect(assembleCards([], undefined, undefined, planAmount)).toEqual({ ready: true, cards: [] });
+  });
+});
+
+describe("findExistingSubs", () => {
+  const address = "0x75dca3CA1CEbb69cA7381C200491C4b03131C3d4";
+  const planId = 3n;
+
+  const base: CandidateSub = { subId: 1n, customer: address, planId, state: 0 };
+
+  it("matches an active subscription for the connected address and plan", () => {
+    expect(findExistingSubs([base], address, planId)).toEqual([1n]);
+  });
+
+  it("excludes a subscription to a different plan", () => {
+    expect(findExistingSubs([{ ...base, planId: 4n }], address, planId)).toEqual([]);
+  });
+
+  it("excludes a subscription that is Cancelled or Expired (state !== Active)", () => {
+    expect(findExistingSubs([{ ...base, state: 1 }], address, planId)).toEqual([]);
+    expect(findExistingSubs([{ ...base, state: 2 }], address, planId)).toEqual([]);
+  });
+
+  it("matches regardless of address casing (chain returns checksummed, wagmi may not)", () => {
+    const lower = address.toLowerCase();
+    const upperCustomer = { ...base, customer: address.toUpperCase().replace("0X", "0x") };
+    expect(findExistingSubs([upperCustomer], lower, planId)).toEqual([1n]);
+  });
+
+  it("returns every matching subId, filtering out non-matching entries from a mixed batch", () => {
+    const subs: CandidateSub[] = [
+      base,
+      { subId: 2n, customer: address, planId, state: 0 },
+      { subId: 3n, customer: "0x000000000000000000000000000000000000dEaD", planId, state: 0 },
+      { subId: 4n, customer: address, planId: 99n, state: 0 },
+    ];
+    expect(findExistingSubs(subs, address, planId)).toEqual([1n, 2n]);
   });
 });
 
