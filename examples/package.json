@@ -5,6 +5,7 @@
   "dependencies": {
     "@circle-fin/x402-batching": "^2.0.4",
     "@scruple/client": "*",
+    "@scruple/rpc-forwarder": "*",
     "@scruple/server": "*",
     "express": "^4.21.0"
   },

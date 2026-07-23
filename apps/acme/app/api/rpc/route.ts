@@ -10,9 +10,9 @@
 // its rate limit (`{code:-32011,"request limit reached"}`) and stalls the
 // checkout panel. A single module-level forwarder serializes every request
 // through one queue with a minimum gap between upstream calls, and retries
-// rate-limited responses with backoff — see lib/rpc-forwarder.ts.
+// rate-limited responses with backoff — see @scruple/rpc-forwarder.
 import { NextResponse } from "next/server";
-import { createRpcForwarder } from "../../../lib/rpc-forwarder";
+import { createRpcForwarder } from "@scruple/rpc-forwarder";
 
 export const dynamic = "force-dynamic";
 
