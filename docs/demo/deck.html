@@ -128,14 +128,16 @@
   <div class="eyebrow">Live on Arc testnet — every demo number is a chain read</div>
   <h2 class="serif">Not a mock.</h2>
   <div class="kv mono" style="font-size:14.5px">
+    <span class="k">Dashboard</span><span class="v"><a href="https://scruple-dashboard.vercel.app">scruple-dashboard.vercel.app</a> — click it, it's live</span>
+    <span class="k">Example SaaS</span><span class="v"><a href="https://scruple-acme.vercel.app">scruple-acme.vercel.app</a> — foreign-branded checkout embed</span>
     <span class="k">CardIssuer</span><span class="v">0xE20EB808cF87B73D716C96CBbb1eee62282506d0</span>
     <span class="k">SubscriptionManager</span><span class="v">0x3d0b19b6B06E568A23AA916270008012Dca55795</span>
     <span class="k">First live charge</span><span class="v">0xca8f7227…d1ea7ad — $1.00 pulled, exact 1% fee split</span>
-    <span class="k">Metered rail</span><span class="v">20/20 agent payments @ $0.001 · gasless · Gateway-batched</span>
+    <span class="k">Metered rail</span><span class="v">50 agent payments @ $0.001 · gasless · Gateway-batched</span>
   </div>
   <ul class="clean" style="margin-top:6px">
-    <li><b>Full loop proven live:</b> plan → card → subscribe → keeper charge → dashboard feed → webhook event.</li>
-    <li><b>Agent budget guard proven live:</b> spending policy refuses beyond its box — the math wins, not the agent's intentions.</li>
+    <li><b>Full loop proven live:</b> plan → card → subscribe → keeper charge → dashboard feed → signed webhook delivery.</li>
+    <li><b>Card-bound agent proven live:</b> the card names the agent as signer on-chain; the agent derives its budget from the card and asks <span class="mono">previewSpend</span> before every call.</li>
   </ul>
 </section>
 
@@ -164,7 +166,7 @@
     <tr><td class="hl">Merchant gate</td><td>sellers verify cards via <span class="mono">previewSpend</span> before serving</td><td>🔒 hard, seller-side</td></tr>
     <tr><td class="hl">Metered granularity</td><td>per-day / per-merchant limits</td><td>🔧 SDK-enforced, on-chain-declared</td></tr>
   </table>
-  <p class="footer-note">Card schema is field-aligned with ERC-7715 — when smart-account signatures land on Gateway, the full-hard upgrade is mechanical, not a redesign.</p>
+  <p class="footer-note">Why not fully hard today: Gateway verifies raw EOA signatures (<span class="mono">ecrecover</span>) — policy code can't run at signature time until it accepts contract signatures (<span class="mono">ERC-1271</span>). Cards are ERC-7715-aligned so that upgrade is mechanical, not a redesign. Nearer-term hardening on our roadmap: the card contract funds the agent's Gateway deposit per period, making the pool cap equal the card limit.</p>
 </section>
 
 <!-- 8 · Market -->
@@ -194,6 +196,7 @@
   <div class="eyebrow">Scruple · the smallest payment, measured exactly</div>
   <p class="quote serif">Stripe taught websites to take cards.<br><em>Scruple teaches apps and agents to charge USDC.</em></p>
   <div class="kv" style="margin-top:10px">
+    <span class="k">Live product</span><span class="v mono"><a href="https://scruple-dashboard.vercel.app">scruple-dashboard.vercel.app</a> · <a href="https://scruple-acme.vercel.app">scruple-acme.vercel.app</a></span>
     <span class="k">Repo</span><span class="v mono"><a href="https://github.com/berkay1532/scruple">github.com/berkay1532/scruple</a></span>
     <span class="k">Live contracts</span><span class="v mono"><a href="https://testnet.arcscan.app/address/0x3d0b19b6B06E568A23AA916270008012Dca55795">testnet.arcscan.app → SubscriptionManager</a></span>
     <span class="k">Builder</span><span class="v">@berkay1532 · Encode × Arc 2026</span>
