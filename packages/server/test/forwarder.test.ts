@@ -11,6 +11,7 @@ const EVENT: PaymentEvent = {
   price: "$0.001",
   transaction: "0xTX",
   at: 1234,
+  seller: "0xSELLER",
 };
 
 describe("createServiceForwarder", () => {

@@ -126,7 +126,10 @@ function Overview({
   const myPlanIds = myScope?.planIds ?? EMPTY_PLAN_IDS;
   const mySubIds = myScope?.subIds ?? EMPTY_SUB_IDS;
 
-  const myPaymentEvents = useMemo(() => scopedPaymentEvents(events, mySubIds), [events, mySubIds]);
+  const myPaymentEvents = useMemo(
+    () => (address ? scopedPaymentEvents(events, address, mySubIds) : []),
+    [events, address, mySubIds],
+  );
 
   const daily = useMemo(() => revenueByDay(myPaymentEvents, 30, nowMs), [myPaymentEvents, nowMs]);
   // Headline revenue is exact money — sum atomic bigints, not the chart's
@@ -150,9 +153,12 @@ function Overview({
     return count;
   }, [events, subs, nowMs]);
 
+  // Derived from myPaymentEvents (already seller-scoped), not the raw feed —
+  // otherwise this stat would count every merchant's metered calls, not just
+  // this one's.
   const todayBatched = useMemo(
-    () => events.filter((e) => e.type === "settlement.batched" && Math.floor(e.at / DAY_MS) === Math.floor(nowMs / DAY_MS)),
-    [events, nowMs],
+    () => myPaymentEvents.filter((e) => e.type === "settlement.batched" && Math.floor(e.at / DAY_MS) === Math.floor(nowMs / DAY_MS)),
+    [myPaymentEvents, nowMs],
   );
   const meteredRevenueToday = todayBatched.reduce((sum, e) => sum + BigInt(e.payload.atomic || "0"), 0n);
 
@@ -168,10 +174,10 @@ function Overview({
   // lib/events.ts).
   const feedRows = useMemo(
     () =>
-      scopedFeedEvents(events, myPlanIds, mySubIds)
+      (address ? scopedFeedEvents(events, address, myPlanIds, mySubIds) : [])
         .sort((a, b) => b.at - a.at)
         .slice(0, 8),
-    [events, myPlanIds, mySubIds],
+    [events, address, myPlanIds, mySubIds],
   );
 
   return (
@@ -602,17 +608,16 @@ function Payments({ events }: { events: EventRow[] }) {
   // Scope payment.succeeded to this merchant's own subs — the events feed is
   // shared across every merchant on this one contract deployment, so
   // filtering by type alone would show other merchants' charges. See
-  // lib/events.ts's `scopeToMerchant` for the join and its subId-uniqueness
-  // caveat, and `scopedPaymentEvents` there for why settlement.batched rows
-  // don't need the same treatment.
+  // lib/events.ts's `scopeToMerchant` for the join, and `scopedPaymentEvents`
+  // for how settlement.batched rows are scoped by payload.seller instead.
   const mySubIds = useMemo(
     () => (address ? scopeToMerchant(events, address).subIds : EMPTY_SUB_IDS),
     [events, address],
   );
 
   const rows = useMemo(
-    () => scopedPaymentEvents(events, mySubIds).sort((a, b) => b.at - a.at),
-    [events, mySubIds],
+    () => (address ? scopedPaymentEvents(events, address, mySubIds).sort((a, b) => b.at - a.at) : []),
+    [events, address, mySubIds],
   );
   const nowMs = Date.now();
 

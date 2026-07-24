@@ -150,26 +150,34 @@ export function scopeToMerchant(events: EventRow[], merchant: string): { planIds
 /**
  * Payment-shaped events scoped to one merchant: `payment.succeeded` is kept
  * only when its subId is in `mySubIds` (see `scopeToMerchant`).
- * `settlement.batched` rows are kept unconditionally — metered settlements
- * only ever arrive at a merchant's own ingest forwarder (there is no
- * cross-merchant metered feed to leak from), so they need no further
- * scoping. All other event types are dropped. Used by both the Payments
- * table and Overview's revenue chart so the two stay consistent.
+ * `settlement.batched` rows are kept only when `payload.seller` matches
+ * `merchant` case-insensitively. Events used to be kept unconditionally on
+ * the (false) assumption that metered settlements only ever arrive at a
+ * merchant's own ingest forwarder — in fact the service indexes every
+ * merchant's ingested events into one shared feed, so any connected wallet
+ * could see every other merchant's metered revenue. A `settlement.batched`
+ * row with no `seller` (a legacy event, ingested before the field existed)
+ * is excluded rather than guessed at — an honest gap beats a wrong owner.
+ * All other event types are dropped. Used by both the Payments table and
+ * Overview's revenue chart so the two stay consistent.
  */
-export function scopedPaymentEvents(events: EventRow[], mySubIds: ReadonlySet<string>): EventRow[] {
+export function scopedPaymentEvents(events: EventRow[], merchant: string, mySubIds: ReadonlySet<string>): EventRow[] {
+  const target = merchant.toLowerCase();
   return events.filter((e) => {
     if (e.type === "payment.succeeded") return mySubIds.has(e.payload.subId);
-    return e.type === "settlement.batched";
+    if (e.type === "settlement.batched") return e.payload.seller?.toLowerCase() === target;
+    return false;
   });
 }
 
 /**
  * Live-activity feed events scoped to one merchant, mirroring
  * `scopedPaymentEvents`'s per-type treatment:
- *  - `settlement.batched` is kept unconditionally — same own-ingest
- *    reasoning as `scopedPaymentEvents`: metered settlements only ever
- *    arrive at a merchant's own ingest forwarder, so there's no
- *    cross-merchant row to leak.
+ *  - `settlement.batched` is kept only when `payload.seller` matches
+ *    `merchant` case-insensitively — same reasoning as
+ *    `scopedPaymentEvents`: the feed is shared across every merchant, and a
+ *    missing `seller` (legacy event) is excluded rather than assumed to be
+ *    this merchant's.
  *  - `plan.created` is kept only when its planId is in `myPlanIds`.
  *  - `card.created` is kept unconditionally — card minting carries no
  *    dollar figures and isn't attributable to a specific merchant, so
@@ -179,11 +187,13 @@ export function scopedPaymentEvents(events: EventRow[], mySubIds: ReadonlySet<st
  */
 export function scopedFeedEvents(
   events: EventRow[],
+  merchant: string,
   myPlanIds: ReadonlySet<string>,
   mySubIds: ReadonlySet<string>,
 ): EventRow[] {
+  const target = merchant.toLowerCase();
   return events.filter((e) => {
-    if (e.type === "settlement.batched") return true;
+    if (e.type === "settlement.batched") return e.payload.seller?.toLowerCase() === target;
     if (e.type === "plan.created") return myPlanIds.has(e.payload.planId);
     if (e.type === "card.created") return true;
     return mySubIds.has(e.payload.subId);

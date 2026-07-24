@@ -12,7 +12,7 @@ function sign(body: string): string {
 }
 
 function payment(id = "u-1") {
-  return { id, endpoint: "/api/quote", payer: "0xP", atomic: "1000", price: "$0.001", transaction: "0xTX", at: 1234 };
+  return { id, endpoint: "/api/quote", payer: "0xP", atomic: "1000", price: "$0.001", transaction: "0xTX", seller: "0xSELLER", at: 1234 };
 }
 
 function admin(path: string, init?: RequestInit) {
@@ -52,7 +52,19 @@ describe("ingest server", () => {
     const events = store.listRecentEvents({ type: "settlement.batched" });
     expect(events).toHaveLength(1);
     expect(events[0].id).toBe("metered:u-1");
-    expect(events[0].payload).toEqual({ endpoint: "/api/quote", payer: "0xP", atomic: "1000", price: "$0.001", transaction: "0xTX" });
+    expect(events[0].payload).toEqual({
+      endpoint: "/api/quote", payer: "0xP", atomic: "1000", price: "$0.001", transaction: "0xTX", seller: "0xSELLER",
+    });
+  });
+
+  it("defaults seller to empty string for a payload from an older SDK that doesn't send it", async () => {
+    const { seller: _seller, ...legacyPayment } = payment("u-legacy");
+    const body = JSON.stringify(legacyPayment);
+    const res = await fetch(`${base}/ingest`, { method: "POST", headers: { "scruple-signature": sign(body) }, body });
+    expect(res.status).toBe(200);
+
+    const events = store.listRecentEvents({ type: "settlement.batched" });
+    expect(events[0].payload.seller).toBe("");
   });
 
   it("rejects bad signatures and malformed payloads", async () => {

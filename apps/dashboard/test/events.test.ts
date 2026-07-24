@@ -288,7 +288,7 @@ describe("scopeToMerchant", () => {
     const events = twoMerchantEvents();
     const { subIds: mySubIds } = scopeToMerchant(events, MERCHANT_A);
 
-    const rows = scopedPaymentEvents(events, mySubIds);
+    const rows = scopedPaymentEvents(events, MERCHANT_A, mySubIds);
 
     expect(rows).toHaveLength(1);
     expect(rows[0].payload.subId).toBe("10");
@@ -296,17 +296,53 @@ describe("scopeToMerchant", () => {
 });
 
 describe("scopedPaymentEvents", () => {
+  const MERCHANT_A = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+  const MERCHANT_B = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
+
   it("keeps payment.succeeded only for the given subIds", () => {
     const events: EventRow[] = [
       ev({ type: "payment.succeeded", payload: { subId: "1", version: "1", amount: "1", fee: "0" }, at: 0 }),
       ev({ type: "payment.succeeded", payload: { subId: "2", version: "1", amount: "1", fee: "0" }, at: 0 }),
     ];
-    const rows = scopedPaymentEvents(events, new Set(["1"]));
+    const rows = scopedPaymentEvents(events, MERCHANT_A, new Set(["1"]));
     expect(rows).toHaveLength(1);
     expect(rows[0].payload.subId).toBe("1");
   });
 
-  it("keeps every settlement.batched row unconditionally", () => {
+  it("keeps a settlement.batched row only when payload.seller matches the merchant", () => {
+    const events: EventRow[] = [
+      ev({
+        type: "settlement.batched",
+        payload: { endpoint: "/x", payer: "0x1", atomic: "1", price: "$0", transaction: "0x1", seller: MERCHANT_A },
+        at: 0,
+      }),
+    ];
+    expect(scopedPaymentEvents(events, MERCHANT_A, new Set())).toHaveLength(1);
+  });
+
+  it("matches payload.seller case-insensitively", () => {
+    const events: EventRow[] = [
+      ev({
+        type: "settlement.batched",
+        payload: { endpoint: "/x", payer: "0x1", atomic: "1", price: "$0", transaction: "0x1", seller: MERCHANT_A },
+        at: 0,
+      }),
+    ];
+    expect(scopedPaymentEvents(events, MERCHANT_A.toLowerCase(), new Set())).toHaveLength(1);
+  });
+
+  it("excludes a settlement.batched row belonging to a different merchant", () => {
+    const events: EventRow[] = [
+      ev({
+        type: "settlement.batched",
+        payload: { endpoint: "/x", payer: "0x1", atomic: "1", price: "$0", transaction: "0x1", seller: MERCHANT_B },
+        at: 0,
+      }),
+    ];
+    expect(scopedPaymentEvents(events, MERCHANT_A, new Set())).toHaveLength(0);
+  });
+
+  it("excludes a settlement.batched row with no seller (legacy event) rather than assuming it's mine", () => {
     const events: EventRow[] = [
       ev({
         type: "settlement.batched",
@@ -314,14 +350,14 @@ describe("scopedPaymentEvents", () => {
         at: 0,
       }),
     ];
-    expect(scopedPaymentEvents(events, new Set())).toHaveLength(1);
+    expect(scopedPaymentEvents(events, MERCHANT_A, new Set())).toHaveLength(0);
   });
 
   it("drops unrelated event types", () => {
     const events: EventRow[] = [
       ev({ type: "subscription.created", payload: { subId: "1", planId: "1", customer: "0x1", cardId: "1" }, at: 0 }),
     ];
-    expect(scopedPaymentEvents(events, new Set(["1"]))).toHaveLength(0);
+    expect(scopedPaymentEvents(events, MERCHANT_A, new Set(["1"]))).toHaveLength(0);
   });
 });
 
@@ -339,7 +375,7 @@ describe("scopedFeedEvents", () => {
       ev({ type: "payment.succeeded", payload: { subId: "20", version: "1", amount: "2000000", fee: "20000" }, at: 0 }),
       ev({
         type: "settlement.batched",
-        payload: { endpoint: "/api/quote", payer: "0x1", atomic: "1000", price: "$0.001", transaction: "0xabc" },
+        payload: { endpoint: "/api/quote", payer: "0x1", atomic: "1000", price: "$0.001", transaction: "0xabc", seller: MERCHANT_A },
         at: 0,
       }),
       ev({ type: "card.created", payload: { cardId: "6", owner: "0x1", signer: "0x2" }, at: 0 }),
@@ -350,30 +386,45 @@ describe("scopedFeedEvents", () => {
     const events = twoMerchantEvents();
     const { planIds, subIds } = scopeToMerchant(events, MERCHANT_A);
 
-    const rows = scopedFeedEvents(events, planIds, subIds);
+    const rows = scopedFeedEvents(events, MERCHANT_A, planIds, subIds);
 
     expect(rows.some((e) => e.type === "payment.succeeded" && e.payload.subId === "20")).toBe(false);
     expect(rows.some((e) => e.type === "payment.succeeded" && e.payload.subId === "10")).toBe(true);
   });
 
-  it("retains card.created and settlement.batched rows regardless of merchant scope", () => {
+  it("retains card.created rows regardless of merchant scope, and keeps settlement.batched only for the matching seller", () => {
     const events = twoMerchantEvents();
     const { planIds, subIds } = scopeToMerchant(events, MERCHANT_A);
 
-    const rows = scopedFeedEvents(events, planIds, subIds);
+    const rows = scopedFeedEvents(events, MERCHANT_A, planIds, subIds);
 
     expect(rows.some((e) => e.type === "card.created")).toBe(true);
     expect(rows.some((e) => e.type === "settlement.batched")).toBe(true);
+
+    const rowsB = scopedFeedEvents(events, MERCHANT_B, planIds, subIds);
+    expect(rowsB.some((e) => e.type === "settlement.batched")).toBe(false);
   });
 
   it("keeps plan.created only for the scoped merchant's own plans", () => {
     const events = twoMerchantEvents();
     const { planIds, subIds } = scopeToMerchant(events, MERCHANT_A);
 
-    const rows = scopedFeedEvents(events, planIds, subIds);
+    const rows = scopedFeedEvents(events, MERCHANT_A, planIds, subIds);
 
     expect(rows.some((e) => e.type === "plan.created" && e.payload.planId === "1")).toBe(true);
     expect(rows.some((e) => e.type === "plan.created" && e.payload.planId === "2")).toBe(false);
+  });
+
+  it("excludes a settlement.batched row with no seller (legacy event) even for the matching merchant", () => {
+    const events: EventRow[] = [
+      ev({
+        type: "settlement.batched",
+        payload: { endpoint: "/x", payer: "0x1", atomic: "1", price: "$0", transaction: "0x1" },
+        at: 0,
+      }),
+    ];
+    const rows = scopedFeedEvents(events, MERCHANT_A, new Set(), new Set());
+    expect(rows).toHaveLength(0);
   });
 });
 

@@ -15,6 +15,12 @@ export interface PaymentEvent {
   price: string;
   transaction?: string | null;
   at: number;
+  /**
+   * The merchant this settlement belongs to (`opts.sellerAddress`), so
+   * downstream consumers (the dashboard) can scope metered revenue to the
+   * right merchant instead of assuming every ingested event is "theirs".
+   */
+  seller: string;
 }
 
 export interface PaidRequest extends Request {
@@ -91,6 +97,7 @@ export function scruple(opts: ScrupleOptions): RequestHandler {
       id: randomUUID(),
       endpoint: req.path, payer: settled.payer, atomic: match.atomic,
       price: match.price, transaction: settled.transaction, at: Date.now(),
+      seller: opts.sellerAddress,
     };
     Promise.resolve().then(() => opts.onPayment?.(event)).catch((err) => {
       console.error("[scruple] onPayment callback threw:", err);
