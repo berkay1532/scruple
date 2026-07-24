@@ -1,0 +1,30 @@
+name: uptime
+
+# Demo-day insurance: probe the three public surfaces every 30 minutes.
+# A failing run triggers GitHub's default workflow-failure email to the
+# repo owner — no external service needed.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: service (401 without bearer IS the healthy signal)
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" -m 15 https://scruple-service.fly.dev/events)
+          echo "service: $code"; [ "$code" = "401" ]
+      - name: dashboard
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" -m 20 https://scruple-dashboard.vercel.app/)
+          echo "dashboard: $code"; [ "$code" = "200" ]
+      - name: acme
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" -m 20 https://scruple-acme.vercel.app/)
+          echo "acme: $code"; [ "$code" = "200" ]
+      - name: dashboard → service proxy (events flow end-to-end)
+        run: |
+          count=$(curl -s -m 20 "https://scruple-dashboard.vercel.app/api/events?limit=1" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["events"]))')
+          echo "proxy events: $count"; [ "$count" -ge 0 ]
