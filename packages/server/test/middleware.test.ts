@@ -60,7 +60,7 @@ describe("scruple middleware", () => {
     const pr = JSON.parse(Buffer.from(res.headers["payment-response"], "base64").toString());
     expect(pr).toEqual({ success: true, transaction: "0xTX", network: "eip155:5042002", payer: "0xPAYER" });
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ endpoint: "/api/quote", payer: "0xPAYER", atomic: 1000n, price: "$0.001" });
+    expect(events[0]).toMatchObject({ endpoint: "/api/quote", payer: "0xPAYER", atomic: 1000n, price: "$0.001", seller: SELLER });
     expect(typeof events[0].id).toBe("string");
     expect(events[0].id.length).toBeGreaterThan(10);
   });

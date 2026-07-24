@@ -151,6 +151,14 @@ export function createIngestServer(opts: { store: Store; secret: string; adminSe
             atomic: payload.atomic,
             price: payload.price,
             transaction: typeof payload.transaction === "string" ? payload.transaction : "",
+            // Carries the merchant this settlement belongs to (see
+            // packages/server/src/middleware.ts's PaymentEvent.seller) so the
+            // dashboard can scope metered revenue to the right merchant
+            // instead of showing it to every connected wallet. Defaulted to
+            // "" for callers on an older SDK version that doesn't send it —
+            // the dashboard treats an unset seller as unattributable, not
+            // "mine".
+            seller: typeof payload.seller === "string" ? payload.seller : "",
           },
           at: payload.at as number,
         });
