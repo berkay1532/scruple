@@ -38,6 +38,28 @@ directly to the merchant + treasury via `transferFrom`:
 - **Acme Analytics:** https://scruple-acme.vercel.app (example SaaS checkout embedding `<ScrupleCheckout/>`)
 - Service API runs at `https://scruple-service.fly.dev` (auth-gated; consumed by the dashboard).
 
+Demo access model: the dashboard is a merchant's single-tenant cockpit. On this
+public demo, chain-derived views scope to whatever wallet you connect (connect
+a fresh wallet and you get a clean new-merchant cockpit), and metered revenue
+belongs to the event's seller address. Webhook management is deliberately left
+open on the demo instance — play with it.
+
+## Roadmap
+
+- **Merchant cockpit auth** — the dashboard is single-tenant by design; the
+  industry-standard access model (Stripe, Radom, Loop) is org/email login with
+  team roles, wallets only as payment rails. Interim step: a `MERCHANT_ADDRESS`
+  env pins the deployment to one merchant so operators can view without
+  connecting the treasury wallet. Wallet-connect stays for chain writes.
+- **Hard metered enforcement** — blocked on Gateway accepting contract
+  signatures (ERC-1271); cards are ERC-7715-aligned so the upgrade is
+  mechanical. Nearer-term: the card contract funds the agent's Gateway deposit
+  per period, making the pool cap equal the card limit.
+- **Plan archiving & card migration** — deactivate old plan versions cleanly;
+  move a subscription to a new card without cancel/resubscribe.
+- **Examples typecheck gate + shared config polish** — CI typecheck for
+  `examples/`, normalize `transpilePackages` across the two Next apps.
+
 ## Build & test the contracts
 
 ```bash
